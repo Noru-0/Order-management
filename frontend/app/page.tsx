@@ -1,5 +1,5 @@
-import OrderManagementIntegrated from "../components/order-management-integrated"
+import OrderManagementClean from "../components/order-management-clean"
 
 export default function Page() {
-  return <OrderManagementIntegrated />
+  return <OrderManagementClean />
 }

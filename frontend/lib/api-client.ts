@@ -40,6 +40,17 @@ export interface EventResponse {
   version: number;
 }
 
+export interface OrderEventsResponse {
+  orderId: string;
+  eventCount: number;
+  events: EventResponse[];
+}
+
+export interface AllEventsResponse {
+  totalEvents: number;
+  events: EventResponse[];
+}
+
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -86,7 +97,34 @@ class OrderApiClient {
 
   // Health check
   async healthCheck(): Promise<ApiResponse> {
-    return this.request('/health');
+    try {
+      const url = `${API_BASE_URL}/health`;
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: data.message || `HTTP ${response.status}`,
+        };
+      }
+
+      return {
+        success: true,
+        data: data,
+      };
+    } catch (error) {
+      console.error('Health check failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+      };
+    }
   }
 
   // Create a new order
@@ -140,12 +178,12 @@ class OrderApiClient {
   }
 
   // Get order events (debug)
-  async getOrderEvents(orderId: string): Promise<ApiResponse<EventResponse[]>> {
+  async getOrderEvents(orderId: string): Promise<ApiResponse<OrderEventsResponse>> {
     return this.request(`/debug/orders/${orderId}/events`);
   }
 
   // Get all events (debug)
-  async getAllEvents(): Promise<ApiResponse<EventResponse[]>> {
+  async getAllEvents(): Promise<ApiResponse<AllEventsResponse>> {
     return this.request('/debug/events');
   }
 }
