@@ -1,0 +1,33 @@
+{
+  "name": "order-management-system",
+  "version": "1.0.0",
+  "description": "Event Sourcing Order Management System with Frontend and Backend",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd Order-management && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "install:backend": "cd Order-management && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd Order-management && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "cd Order-management && npm start",
+    "start:frontend": "cd frontend && npm start",
+    "demo": "cd Order-management && powershell -ExecutionPolicy Bypass -File demo_script.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [
+    "event-sourcing",
+    "cqrs",
+    "order-management",
+    "typescript",
+    "next.js",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT"
+}
