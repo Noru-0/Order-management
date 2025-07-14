@@ -14,6 +14,48 @@ export class OrderController {
     try {
       const { customerId, items } = req.body;
       
+      // Validation
+      if (!customerId || typeof customerId !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'customerId is required and must be a string'
+        });
+        return;
+      }
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'items is required and must be a non-empty array'
+        });
+        return;
+      }
+
+      // Validate each item
+      for (const item of items) {
+        if (!item.productId || !item.productName || !item.quantity || !item.price) {
+          res.status(400).json({
+            success: false,
+            error: 'Each item must have productId, productName, quantity, and price'
+          });
+          return;
+        }
+        if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+          res.status(400).json({
+            success: false,
+            error: 'Item quantity must be a positive number'
+          });
+          return;
+        }
+        if (typeof item.price !== 'number' || item.price <= 0) {
+          res.status(400).json({
+            success: false,
+            error: 'Item price must be a positive number'
+          });
+          return;
+        }
+      }
+      
       const orderId = await this.commandHandlers.handleCreateOrder({
         customerId,
         items
@@ -35,6 +77,16 @@ export class OrderController {
   async getOrder(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      
+      // Validation
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
       const events = await this.eventStore.getEvents(id);
       
       if (events.length === 0) {
@@ -47,11 +99,20 @@ export class OrderController {
 
       const order = this.rebuildOrderFromEvents(events);
       
+      if (!order) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to rebuild order from events'
+        });
+        return;
+      }
+      
       res.json({
         success: true,
         data: order
       });
     } catch (error) {
+      console.error(`[ERROR] Failed to get order ${req.params.id}:`, error);
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -63,6 +124,42 @@ export class OrderController {
     try {
       const { id } = req.params;
       const { status } = req.body;
+
+      // Validation
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
+      if (!status || typeof status !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Status is required and must be a string'
+        });
+        return;
+      }
+
+      // Validate status enum
+      if (!Object.values(OrderStatus).includes(status as OrderStatus)) {
+        res.status(400).json({
+          success: false,
+          error: `Invalid status. Valid values are: ${Object.values(OrderStatus).join(', ')}`
+        });
+        return;
+      }
+
+      // Check if order exists
+      const events = await this.eventStore.getEvents(id);
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
 
       await this.commandHandlers.handleUpdateOrderStatus({
         orderId: id,
@@ -86,6 +183,58 @@ export class OrderController {
       const { id } = req.params;
       const { item } = req.body;
 
+      // Validation
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
+      if (!item || typeof item !== 'object') {
+        res.status(400).json({
+          success: false,
+          error: 'Item is required and must be an object'
+        });
+        return;
+      }
+
+      // Validate item structure
+      if (!item.productId || !item.productName || !item.quantity || !item.price) {
+        res.status(400).json({
+          success: false,
+          error: 'Item must have productId, productName, quantity, and price'
+        });
+        return;
+      }
+
+      if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+        res.status(400).json({
+          success: false,
+          error: 'Item quantity must be a positive number'
+        });
+        return;
+      }
+
+      if (typeof item.price !== 'number' || item.price <= 0) {
+        res.status(400).json({
+          success: false,
+          error: 'Item price must be a positive number'
+        });
+        return;
+      }
+
+      // Check if order exists
+      const events = await this.eventStore.getEvents(id);
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
       await this.commandHandlers.handleAddOrderItem({
         orderId: id,
         item
@@ -107,6 +256,52 @@ export class OrderController {
     try {
       const { id, productId } = req.params;
 
+      // Validation
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
+      if (!productId || typeof productId !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Product ID is required and must be a string'
+        });
+        return;
+      }
+
+      // Check if order exists
+      const events = await this.eventStore.getEvents(id);
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
+      // Check if product exists in order
+      const order = this.rebuildOrderFromEvents(events);
+      if (!order) {
+        res.status(400).json({
+          success: false,
+          error: 'Cannot rebuild order state'
+        });
+        return;
+      }
+
+      const productExists = order.items.some(item => item.productId === productId);
+      if (!productExists) {
+        res.status(404).json({
+          success: false,
+          error: 'Product not found in order'
+        });
+        return;
+      }
+
       await this.commandHandlers.handleRemoveOrderItem({
         orderId: id,
         productId
@@ -126,6 +321,11 @@ export class OrderController {
 
   async getAllOrders(req: Request, res: Response): Promise<void> {
     try {
+      // Add pagination support
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 100); // Max 100 items per page
+      const offset = (page - 1) * limit;
+
       const allEvents = await this.eventStore.getAllEvents();
       const orderMap = new Map<string, BaseEvent[]>();
 
@@ -138,17 +338,39 @@ export class OrderController {
       });
 
       // Rebuild orders from events
-      const orders: Order[] = [];
-      orderMap.forEach(events => {
-        const order = this.rebuildOrderFromEvents(events);
-        if (order) {
-          orders.push(order);
+      const allOrders: Order[] = [];
+      let processedCount = 0;
+      
+      for (const [aggregateId, events] of orderMap) {
+        try {
+          const order = this.rebuildOrderFromEvents(events);
+          if (order) {
+            allOrders.push(order);
+          }
+        } catch (error) {
+          console.warn(`[WARN] Failed to rebuild order ${aggregateId}:`, error);
+          // Continue processing other orders instead of failing completely
         }
-      });
+        processedCount++;
+      }
+
+      // Apply pagination
+      const totalOrders = allOrders.length;
+      const paginatedOrders = allOrders.slice(offset, offset + limit);
 
       res.json({
         success: true,
-        data: orders
+        data: {
+          orders: paginatedOrders,
+          pagination: {
+            page,
+            limit,
+            total: totalOrders,
+            totalPages: Math.ceil(totalOrders / limit),
+            hasNext: page * limit < totalOrders,
+            hasPrev: page > 1
+          }
+        }
       });
     } catch (error) {
       res.status(500).json({
@@ -161,39 +383,42 @@ export class OrderController {
   private rebuildOrderFromEvents(events: BaseEvent[]): Order | null {
     if (events.length === 0) return null;
 
-    let order: Order | null = null;
-    events.sort((a, b) => a.version - b.version);
+    // Sắp xếp theo version tăng dần
+    const sortedEvents = [...events].sort((a, b) => a.version - b.version);
 
-    // Check if there's a rollback event and find the latest one
-    const rollbackEvents = events.filter(e => e.type === 'OrderRolledBack');
-    
-    const latestRollback = rollbackEvents.length > 0 ? 
-      rollbackEvents.reduce((latest, current) => current.version > latest.version ? current : latest) : null;
+    // Tìm rollback mới nhất (nếu có)
+    const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
+    const latestRollback = rollbackEvents.length > 0
+      ? rollbackEvents.reduce((latest, current) =>
+          current.version > latest.version ? current : latest)
+      : null;
 
-    // If there's a rollback, filter events to only include those up to the rollback point
-    let eventsToProcess = events;
+    // Lọc ra danh sách event cần xử lý (tính đến rollback thực sự)
+    let eventsToProcess = sortedEvents;
+
     if (latestRollback) {
       const rollbackData = latestRollback.data;
-      
-      // Exclude all rollback events first
-      const nonRollbackEvents = events.filter(event => event.type !== 'OrderRolledBack');
-      
+      const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
+
       if (rollbackData.rollbackType === 'version') {
-        eventsToProcess = nonRollbackEvents.filter(event => 
-          event.version <= rollbackData.rollbackValue
-        );
+        const finalVersion = this.resolveNestedRollbackVersion(sortedEvents, rollbackData.rollbackValue);
+        eventsToProcess = nonRollbackEvents.filter(e => e.version <= finalVersion);
+        console.log(`[DEBUG] Rollback to nested version ${finalVersion} (resolved from ${rollbackData.rollbackValue})`);
       } else if (rollbackData.rollbackType === 'timestamp') {
         const rollbackDate = new Date(rollbackData.rollbackValue);
-        eventsToProcess = nonRollbackEvents.filter(event => 
-          new Date(event.timestamp) <= rollbackDate
+        eventsToProcess = nonRollbackEvents.filter(e =>
+          new Date(e.timestamp) <= rollbackDate
         );
+        console.log(`[DEBUG] Rollback to timestamp ${rollbackDate.toISOString()}`);
       }
-      
-      console.log(`[DEBUG] Rollback detected: ${rollbackData.rollbackPoint}, processing ${eventsToProcess.length} events out of ${nonRollbackEvents.length} non-rollback events (${rollbackData.eventsUndone} events undone)`);
-      console.log('[DEBUG] Events to process:', eventsToProcess.map(e => `${e.type} v${e.version}`).join(', '));
+
+      console.log(`[DEBUG] Events to process after rollback:`, eventsToProcess.map(e => `${e.type} v${e.version}`).join(', '));
     } else {
-      console.log(`[DEBUG] No rollback events found, processing all ${events.length} events`);
+      console.log(`[DEBUG] No rollback detected. Processing all ${eventsToProcess.length} events.`);
     }
+
+    // Tái dựng trạng thái Order từ các sự kiện
+    let order: Order | null = null;
 
     for (const event of eventsToProcess) {
       switch (event.type) {
@@ -205,28 +430,62 @@ export class OrderController {
             event.data.orderId
           );
           break;
+
         case 'OrderStatusUpdated':
           if (order) {
             order = order.updateStatus(event.data.newStatus);
           }
           break;
+
         case 'OrderItemAdded':
           if (order) {
             order = order.addItem(event.data.item);
           }
           break;
+
         case 'OrderItemRemoved':
           if (order) {
             order = order.removeItem(event.data.productId);
           }
           break;
+
         case 'OrderRolledBack':
-          // Should not reach here due to filtering above, but keep for safety
+          // đã xử lý ở trên, bỏ qua tại đây
+          break;
+
+        default:
+          console.warn(`[WARN] Unrecognized event type: ${event.type}`);
           break;
       }
     }
 
+    if (!order) {
+      console.warn('[WARN] Order could not be rebuilt – no OrderCreated event present.');
+    }
+
     return order;
+  }
+
+  private resolveNestedRollbackVersion(events: BaseEvent[], rollbackVersion: number): number {
+    const versionMap = new Map(events.map(e => [e.version, e]));
+
+    let currentVersion = rollbackVersion;
+
+    while (true) {
+      const event = versionMap.get(currentVersion);
+      if (!event || event.type !== 'OrderRolledBack') {
+        break;
+      }
+
+      const nestedRollbackValue = event.data.rollbackValue;
+      if (typeof nestedRollbackValue === 'number') {
+        currentVersion = nestedRollbackValue;
+      } else {
+        break;
+      }
+    }
+
+    return currentVersion;
   }
 
   // Debug methods for demo
@@ -354,11 +613,28 @@ export class OrderController {
       const { id } = req.params;
       const { toVersion, toTimestamp } = req.body;
 
+      // Validate order ID
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
       // Validate input
       if (!toVersion && !toTimestamp) {
         res.status(400).json({
           success: false,
           error: 'Either toVersion or toTimestamp must be provided'
+        });
+        return;
+      }
+
+      if (toVersion && toTimestamp) {
+        res.status(400).json({
+          success: false,
+          error: 'Only one of toVersion or toTimestamp should be provided'
         });
         return;
       }
@@ -389,9 +665,27 @@ export class OrderController {
       let eventsToKeep: BaseEvent[];
       
       if (toVersion) {
+        // Validate version number
+        if (typeof toVersion !== 'number' || toVersion < 1) {
+          res.status(400).json({
+            success: false,
+            error: 'toVersion must be a positive number'
+          });
+          return;
+        }
+
         eventsToKeep = allEvents.filter(event => event.version <= toVersion);
       } else {
+        // Validate timestamp
         const rollbackDate = new Date(toTimestamp);
+        if (isNaN(rollbackDate.getTime())) {
+          res.status(400).json({
+            success: false,
+            error: 'toTimestamp must be a valid date'
+          });
+          return;
+        }
+
         eventsToKeep = allEvents.filter(event => new Date(event.timestamp) <= rollbackDate);
       }
 
@@ -414,8 +708,10 @@ export class OrderController {
         return;
       }
       
-      // Get the events that will be "undone"
-      const undoneEvents = allEvents.slice(eventsToKeep.length);
+      // Get the events that will be "undone" - FIXED: correct calculation
+      const undoneEvents = allEvents.filter(event => 
+        toVersion ? event.version > toVersion : new Date(event.timestamp) > new Date(toTimestamp)
+      );
 
       // Create rollback event and save it to event store
       const rollbackEvent: OrderRolledBackEvent = {

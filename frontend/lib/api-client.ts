@@ -51,6 +51,18 @@ export interface AllEventsResponse {
   events: EventResponse[];
 }
 
+export interface AllOrdersResponse {
+  orders: OrderResponse[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -141,8 +153,8 @@ class OrderApiClient {
   }
 
   // Get all orders
-  async getAllOrders(): Promise<ApiResponse<OrderResponse[]>> {
-    return this.request('/orders');
+  async getAllOrders(page: number = 1, limit: number = 10): Promise<ApiResponse<AllOrdersResponse | OrderResponse[]>> {
+    return this.request(`/orders?page=${page}&limit=${limit}`);
   }
 
   // Update order status
@@ -190,8 +202,22 @@ class OrderApiClient {
   // Rollback order (debug/demo)
   async rollbackOrder(orderId: string, toVersion?: number, toTimestamp?: string): Promise<ApiResponse<any>> {
     const body: any = {};
-    if (toVersion !== undefined) body.toVersion = toVersion;
-    if (toTimestamp) body.toTimestamp = toTimestamp;
+    if (toVersion !== undefined && toVersion > 0) {
+      body.toVersion = toVersion;
+    }
+    if (toTimestamp && toTimestamp.trim() !== '') {
+      // Convert datetime-local format to ISO string
+      const date = new Date(toTimestamp);
+      if (!isNaN(date.getTime())) {
+        body.toTimestamp = date.toISOString();
+      } else {
+        throw new Error('Invalid timestamp format');
+      }
+    }
+    
+    if (Object.keys(body).length === 0) {
+      throw new Error('Either toVersion or toTimestamp must be provided');
+    }
     
     return this.request(`/debug/orders/${orderId}/rollback`, {
       method: 'POST',

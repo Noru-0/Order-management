@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Loader2, Package, Plus, Trash2, Search } from "lucide-react"
-import { orderApi, type OrderResponse, type EventResponse, type OrderItem, type OrderEventsResponse, type AllEventsResponse } from "@/lib/api-client"
+import { orderApi, type OrderResponse, type EventResponse, type OrderItem, type OrderEventsResponse, type AllEventsResponse, type AllOrdersResponse } from "@/lib/api-client"
 
 export default function OrderManagementDemo() {
   // Hydration fix
@@ -78,8 +78,31 @@ export default function OrderManagementDemo() {
     setLastResponse(`${action} Error: ${error}`)
   }
 
+  const handleApiError = (error: any, action: string) => {
+    console.error(`${action} Error:`, error)
+    let errorMessage = "Network error"
+    
+    if (error instanceof Error) {
+      errorMessage = error.message
+    } else if (typeof error === 'string') {
+      errorMessage = error
+    }
+    
+    showError(errorMessage, action)
+  }
+
   // API handlers
   const handleCreateOrder = async () => {
+    // Client-side validation
+    if (!createOrderForm.customerId.trim()) {
+      showError("Vui lòng nhập Customer ID", "Create Order")
+      return
+    }
+    if (createOrderForm.items.length === 0) {
+      showError("Vui lòng thêm ít nhất một item", "Create Order")
+      return
+    }
+
     setLoadingState("createOrder", true)
     try {
       const response = await orderApi.createOrder(createOrderForm)
@@ -87,16 +110,20 @@ export default function OrderManagementDemo() {
       if (response.success && response.data) {
         setOrderId(response.data.orderId)
         setSearchOrderId(response.data.orderId)
+      } else if (response.error) {
+        showError(response.error, "Create Order")
       }
     } catch (error) {
-      console.error("Create Order Error:", error)
-      showError("Network error", "Create Order")
+      handleApiError(error, "Create Order")
     }
     setLoadingState("createOrder", false)
   }
 
   const handleGetOrder = async () => {
-    if (!searchOrderId) return
+    if (!searchOrderId.trim()) {
+      showError("Vui lòng nhập Order ID để tìm kiếm", "Get Order")
+      return
+    }
     setLoadingState("getOrder", true)
     try {
       const response = await orderApi.getOrder(searchOrderId)
@@ -106,48 +133,84 @@ export default function OrderManagementDemo() {
         setCurrentOrderLastUpdated(new Date())
         // Set orderId to enable other operations (add item, remove item, update status)
         setOrderId(searchOrderId)
+      } else if (response.error) {
+        showError(response.error, "Get Order")
       }
     } catch (error) {
-      showError("Network error", "Get Order")
+      handleApiError(error, "Get Order")
     }
     setLoadingState("getOrder", false)
   }
 
   const handleUpdateStatus = async () => {
-    if (!orderId) return
+    if (!orderId.trim()) {
+      showError("Vui lòng chọn Order ID trước", "Update Status")
+      return
+    }
     setLoadingState("updateStatus", true)
     try {
       const response = await orderApi.updateOrderStatus(orderId, { status: newStatus })
       showResponse(response, "Update Status")
+      if (!response.success && response.error) {
+        showError(response.error, "Update Status")
+      }
     } catch (error) {
-      showError("Network error", "Update Status")
+      handleApiError(error, "Update Status")
     }
     setLoadingState("updateStatus", false)
   }
 
   const handleAddItem = async () => {
-    if (!orderId || !newItem.productId) return
+    if (!orderId.trim()) {
+      showError("Vui lòng chọn Order ID trước", "Add Item")
+      return
+    }
+    if (!newItem.productId.trim()) {
+      showError("Vui lòng nhập Product ID", "Add Item")
+      return
+    }
+    if (!newItem.productName.trim()) {
+      showError("Vui lòng nhập Product Name", "Add Item")
+      return
+    }
+    if (newItem.quantity <= 0) {
+      showError("Quantity phải lớn hơn 0", "Add Item")
+      return
+    }
+    if (newItem.price <= 0) {
+      showError("Price phải lớn hơn 0", "Add Item")
+      return
+    }
+    
     setLoadingState("addItem", true)
     try {
       const response = await orderApi.addOrderItem(orderId, { item: newItem })
       showResponse(response, "Add Item")
       if (response.success) {
         setNewItem({ productId: "", productName: "", quantity: 1, price: 0 })
+      } else if (response.error) {
+        showError(response.error, "Add Item")
       }
     } catch (error) {
-      showError("Network error", "Add Item")
+      handleApiError(error, "Add Item")
     }
     setLoadingState("addItem", false)
   }
 
   const handleRemoveItem = async (productId: string) => {
-    if (!orderId) return
+    if (!orderId.trim()) {
+      showError("Vui lòng chọn Order ID trước", "Remove Item")
+      return
+    }
     setLoadingState("removeItem", true)
     try {
       const response = await orderApi.removeOrderItem(orderId, productId)
       showResponse(response, "Remove Item")
+      if (!response.success && response.error) {
+        showError(response.error, "Remove Item")
+      }
     } catch (error) {
-      showError("Network error", "Remove Item")
+      handleApiError(error, "Remove Item")
     }
     setLoadingState("removeItem", false)
   }
@@ -179,9 +242,18 @@ export default function OrderManagementDemo() {
       const response = await orderApi.getAllOrders()
       showResponse(response, "Get All Orders")
       if (response.success && response.data) {
-        setAllOrders(response.data)
+        // Handle both old format (direct array) and new format (with pagination)
+        if (Array.isArray(response.data)) {
+          setAllOrders(response.data)
+        } else if ((response.data as AllOrdersResponse).orders && Array.isArray((response.data as AllOrdersResponse).orders)) {
+          setAllOrders((response.data as AllOrdersResponse).orders)
+        } else {
+          setAllOrders([])
+          console.warn("Unexpected response format for getAllOrders:", response.data)
+        }
       }
     } catch (error) {
+      console.error("Get All Orders Error:", error)
       showError("Network error", "Get All Orders")
     }
     setLoadingState("getAllOrders", false)
@@ -205,76 +277,126 @@ export default function OrderManagementDemo() {
   }
 
   const handleRollback = async () => {
-    if (!rollbackOrderId) {
+    // Validate inputs
+    if (!rollbackOrderId.trim()) {
       showError("Vui lòng nhập Order ID để rollback", "Rollback")
       return
     }
 
-    if (!rollbackVersion && !rollbackTimestamp) {
+    const hasVersion = rollbackVersion.trim() !== ''
+    const hasTimestamp = rollbackTimestamp.trim() !== ''
+
+    if (!hasVersion && !hasTimestamp) {
       showError("Vui lòng nhập Version hoặc Timestamp để rollback", "Rollback")
       return
     }
 
+    if (hasVersion && hasTimestamp) {
+      showError("Chỉ được nhập Version HOẶC Timestamp, không được nhập cả hai", "Rollback")
+      return
+    }
+
+    // Validate version number
+    if (hasVersion) {
+      const versionNum = parseInt(rollbackVersion)
+      if (isNaN(versionNum) || versionNum < 1) {
+        showError("Version phải là số nguyên dương", "Rollback")
+        return
+      }
+    }
+
+    // Validate timestamp
+    if (hasTimestamp) {
+      const date = new Date(rollbackTimestamp)
+      if (isNaN(date.getTime())) {
+        showError("Timestamp không hợp lệ", "Rollback")
+        return
+      }
+    }
+
     setLoadingState("rollback", true)
     try {
-      const version = rollbackVersion ? parseInt(rollbackVersion) : undefined
-      const response = await orderApi.rollbackOrder(rollbackOrderId, version, rollbackTimestamp)
+      const version = hasVersion ? parseInt(rollbackVersion) : undefined
+      const timestamp = hasTimestamp ? rollbackTimestamp : undefined
+      
+      const response = await orderApi.rollbackOrder(rollbackOrderId, version, timestamp)
       showResponse(response, "Rollback")
       
       if (response.success && response.data) {
         setRollbackResult(response.data)
         
-        // Auto-refresh data after successful rollback
-        // Refresh functions without changing loading states
-        const refreshCurrentOrder = async () => {
-          try {
-            const orderResponse = await orderApi.getOrder(rollbackOrderId)
-            if (orderResponse.success && orderResponse.data) {
-              setCurrentOrder(orderResponse.data)
-              setCurrentOrderLastUpdated(new Date())
-              setOrderId(rollbackOrderId)
-              setSearchOrderId(rollbackOrderId)
-            }
-          } catch (error) {
-            console.error("Error refreshing current order:", error)
-          }
-        }
+        // Clear rollback form after successful rollback
+        setRollbackVersion('')
+        setRollbackTimestamp('')
         
-        const refreshAllOrders = async () => {
+        // Auto-refresh data after successful rollback with a small delay to ensure consistency
+        setTimeout(async () => {
           try {
-            const allOrdersResponse = await orderApi.getAllOrders()
-            if (allOrdersResponse.success && allOrdersResponse.data) {
-              setAllOrders(allOrdersResponse.data)
+            // Refresh functions without changing loading states
+            const refreshPromises = []
+            
+            // Refresh current order
+            const refreshCurrentOrder = async () => {
+              try {
+                const orderResponse = await orderApi.getOrder(rollbackOrderId)
+                if (orderResponse.success && orderResponse.data) {
+                  setCurrentOrder(orderResponse.data)
+                  setCurrentOrderLastUpdated(new Date())
+                  setOrderId(rollbackOrderId)
+                  setSearchOrderId(rollbackOrderId)
+                }
+              } catch (error) {
+                console.error("Error refreshing current order:", error)
+              }
             }
-          } catch (error) {
-            console.error("Error refreshing all orders:", error)
-          }
-        }
-        
-        const refreshOrderEvents = async () => {
-          try {
-            const eventsResponse = await orderApi.getOrderEvents(rollbackOrderId)
-            if (eventsResponse.success && eventsResponse.data && eventsResponse.data.events) {
-              setOrderEvents(eventsResponse.data.events)
+            
+            // Refresh all orders
+            const refreshAllOrders = async () => {
+              try {
+                const allOrdersResponse = await orderApi.getAllOrders()
+                if (allOrdersResponse.success && allOrdersResponse.data) {
+                  if (Array.isArray(allOrdersResponse.data)) {
+                    setAllOrders(allOrdersResponse.data)
+                  } else if ((allOrdersResponse.data as AllOrdersResponse).orders) {
+                    setAllOrders((allOrdersResponse.data as AllOrdersResponse).orders)
+                  }
+                }
+              } catch (error) {
+                console.error("Error refreshing all orders:", error)
+              }
             }
+            
+            // Refresh order events
+            const refreshOrderEvents = async () => {
+              try {
+                const eventsResponse = await orderApi.getOrderEvents(rollbackOrderId)
+                if (eventsResponse.success && eventsResponse.data && eventsResponse.data.events) {
+                  setOrderEvents(eventsResponse.data.events)
+                }
+              } catch (error) {
+                console.error("Error refreshing order events:", error)
+              }
+            }
+            
+            // Execute refreshes in parallel
+            refreshPromises.push(refreshCurrentOrder(), refreshAllOrders(), refreshOrderEvents())
+            await Promise.all(refreshPromises)
+            
           } catch (error) {
-            console.error("Error refreshing order events:", error)
+            console.error("Error during auto-refresh:", error)
           }
-        }
-        
-        // Execute refreshes in parallel
-        await Promise.all([
-          refreshCurrentOrder(),
-          refreshAllOrders(),
-          refreshOrderEvents()
-        ])
+        }, 500) // 500ms delay to ensure backend consistency
         
       } else {
         setRollbackResult(null)
+        if (response.error) {
+          showError(response.error, "Rollback")
+        }
       }
     } catch (error) {
       console.error("Rollback Error:", error)
-      showError("Network error", "Rollback")
+      const errorMessage = error instanceof Error ? error.message : "Network error"
+      showError(errorMessage, "Rollback")
       setRollbackResult(null)
     }
     setLoadingState("rollback", false)
@@ -284,14 +406,40 @@ export default function OrderManagementDemo() {
     try {
       const response = await orderApi.healthCheck()
       showResponse(response, "Health Check")
+      if (!response.success && response.error) {
+        showError(response.error, "Health Check")
+      }
     } catch (error) {
-      console.error("Health check error:", error)
-      showError("Network error", "Health Check")
+      handleApiError(error, "Health Check")
     }
   }
 
   const addItemToForm = () => {
-    if (!newItem.productId) return
+    // Validation
+    if (!newItem.productId.trim()) {
+      showError("Vui lòng nhập Product ID", "Add Item to Form")
+      return
+    }
+    if (!newItem.productName.trim()) {
+      showError("Vui lòng nhập Product Name", "Add Item to Form")
+      return
+    }
+    if (newItem.quantity <= 0) {
+      showError("Quantity phải lớn hơn 0", "Add Item to Form")
+      return
+    }
+    if (newItem.price <= 0) {
+      showError("Price phải lớn hơn 0", "Add Item to Form")
+      return
+    }
+
+    // Check for duplicate product ID
+    const existingItem = createOrderForm.items.find(item => item.productId === newItem.productId)
+    if (existingItem) {
+      showError("Product ID đã tồn tại trong order", "Add Item to Form")
+      return
+    }
+
     setCreateOrderForm(prev => ({
       ...prev,
       items: [...prev.items, { ...newItem }]
@@ -629,6 +777,13 @@ export default function OrderManagementDemo() {
                   All Events
                 </Button>
               </div>
+
+              <Button 
+                onClick={handleHealthCheck}
+                className="w-full h-8 text-xs bg-green-600 hover:bg-green-700"
+              >
+                🏥 Health Check
+              </Button>
 
               <Separator />
 
