@@ -753,6 +753,221 @@ export default function OrderManagementDemo() {
     )
   }
 
+  // Event Visualizer Component for better event display
+  const EventVisualizer = ({ event }: { event: any }) => {
+    // Kiểm tra event có tồn tại không
+    if (!event) {
+      return (
+        <div className="border rounded p-2 bg-gray-50 flex-shrink-0">
+          <div className="text-xs text-gray-500 italic">Invalid event data</div>
+        </div>
+      )
+    }
+
+    const getEventIcon = (type: string) => {
+      switch (type) {
+        case 'OrderCreated': return '🆕'
+        case 'OrderStatusUpdated': return '🔄'
+        case 'OrderItemAdded': return '➕'
+        case 'OrderItemRemoved': return '➖'
+        case 'OrderRolledBack': return '⏮️'
+        default: return '📝'
+      }
+    }
+
+    const getEventColor = (type: string) => {
+      switch (type) {
+        case 'OrderCreated': return 'border-l-green-400 bg-green-50'
+        case 'OrderStatusUpdated': return 'border-l-blue-400 bg-blue-50'
+        case 'OrderItemAdded': return 'border-l-purple-400 bg-purple-50'
+        case 'OrderItemRemoved': return 'border-l-red-400 bg-red-50'
+        case 'OrderRolledBack': return 'border-l-orange-400 bg-orange-50'
+        default: return 'border-l-gray-400 bg-gray-50'
+      }
+    }
+
+    const renderEventData = (eventType: string, data: any) => {
+      // Kiểm tra data có tồn tại không
+      if (!data) {
+        return (
+          <div className="text-xs text-gray-500 italic">
+            No event data available
+          </div>
+        )
+      }
+
+      switch (eventType) {
+        case 'OrderCreated':
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Customer:</span>
+                <span className="text-xs">{data.customerId || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Items:</span>
+                <span className="text-xs">{data.items?.length || 0} items</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Total:</span>
+                <span className="text-xs font-semibold">${data.totalAmount || 0}</span>
+              </div>
+              {data.items && data.items.length > 0 && (
+                <div className="mt-2 pt-1 border-t border-gray-200">
+                  <div className="text-xs font-medium mb-1">Items:</div>
+                  {data.items.slice(0, 2).map((item: any, index: number) => (
+                    <div key={index} className="text-xs text-gray-600 flex justify-between">
+                      <span>{item?.productName || 'Unknown'}</span>
+                      <span>{item?.quantity || 0}x ${item?.price || 0}</span>
+                    </div>
+                  ))}
+                  {data.items.length > 2 && (
+                    <div className="text-xs text-gray-500">... and {data.items.length - 2} more</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+
+        case 'OrderStatusUpdated':
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">From:</span>
+                <Badge className="text-xs px-1 py-0 h-auto bg-gray-100 text-gray-700">
+                  {data.oldStatus || 'Unknown'}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">To:</span>
+                <StatusBadge status={data.newStatus || data.status || 'Unknown'} />
+              </div>
+              {data.reason && (
+                <div className="mt-1 pt-1 border-t border-gray-200">
+                  <span className="text-xs text-gray-600">{data.reason}</span>
+                </div>
+              )}
+            </div>
+          )
+
+        case 'OrderItemAdded':
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Product:</span>
+                <span className="text-xs">{data.item?.productName || 'Unknown'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">ID:</span>
+                <span className="text-xs font-mono">{data.item?.productId || 'Unknown'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Quantity:</span>
+                <span className="text-xs">{data.item?.quantity || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Price:</span>
+                <span className="text-xs font-semibold">${data.item?.price || 0}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Subtotal:</span>
+                <span className="text-xs font-semibold bg-green-100 px-1 rounded">
+                  ${((data.item?.quantity || 0) * (data.item?.price || 0)).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )
+
+        case 'OrderItemRemoved':
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Product ID:</span>
+                <span className="text-xs font-mono bg-red-100 px-1 rounded">{data.productId || 'Unknown'}</span>
+              </div>
+              {data.item && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-xs font-medium">Removed:</span>
+                    <span className="text-xs">{data.item.productName || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs font-medium">Was:</span>
+                    <span className="text-xs">{data.item.quantity || 0}x ${data.item.price || 0}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+
+        case 'OrderRolledBack':
+          return (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Target:</span>
+                <span className="text-xs">
+                  {data.targetVersion ? `Version ${data.targetVersion}` : 
+                   data.targetTimestamp ? new Date(data.targetTimestamp).toLocaleString() : 'Unknown'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-medium">Events Undone:</span>
+                <span className="text-xs font-semibold text-orange-600">{data.eventsUndone || 0}</span>
+              </div>
+              {data.rollbackReason && (
+                <div className="mt-1 pt-1 border-t border-gray-200">
+                  <span className="text-xs text-gray-600">{data.rollbackReason}</span>
+                </div>
+              )}
+            </div>
+          )
+
+        default:
+          // Fallback for unknown event types - show structured data
+          return (
+            <div className="space-y-1">
+              {Object.entries(data || {}).slice(0, 4).map(([key, value], index) => (
+                <div key={index} className="flex justify-between">
+                  <span className="text-xs font-medium capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                  <span className="text-xs max-w-24 truncate" title={String(value || '')}>
+                    {typeof value === 'object' ? JSON.stringify(value).slice(0, 20) + '...' : String(value || 'N/A')}
+                  </span>
+                </div>
+              ))}
+              {Object.keys(data || {}).length > 4 && (
+                <div className="text-xs text-gray-500">... {Object.keys(data).length - 4} more fields</div>
+              )}
+              {Object.keys(data || {}).length === 0 && (
+                <div className="text-xs text-gray-500 italic">No additional data</div>
+              )}
+            </div>
+          )
+      }
+    }
+
+    return (
+      <div className={`border rounded-l-4 border-l-4 p-2 ${getEventColor(event.type)} flex-shrink-0`}>
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">{getEventIcon(event.type)}</span>
+            <div>
+              <div className="font-medium text-xs">{event.type}</div>
+              <div className="text-xs text-gray-500">
+                v{event.version || 'N/A'} | {event.aggregateId ? event.aggregateId.substring(0, 8) + '...' : 'N/A'}
+              </div>
+            </div>
+          </div>
+          <div className="text-xs text-gray-500">
+            {event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'N/A'}
+          </div>
+        </div>
+        <div className="bg-white p-2 rounded border">
+          {renderEventData(event.type, event.data)}
+        </div>
+      </div>
+    )
+  }
+
   // Prevent hydration mismatch
   if (!isClient) {
     return (
@@ -1300,11 +1515,9 @@ export default function OrderManagementDemo() {
                 {rollbackResult.undoneEvents && rollbackResult.undoneEvents.length > 0 && (
                   <div className="border-t pt-3">
                     <h4 className="font-semibold text-sm mb-2">❌ Undone Events</h4>
-                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
                       {rollbackResult.undoneEvents.map((event: any, index: number) => (
-                        <div key={index} className="text-xs p-2 bg-red-50 rounded border-l-2 border-red-200">
-                          <strong>{event.type}</strong> (v{event.version}) - {new Date(event.timestamp).toLocaleTimeString()}
-                        </div>
+                        <EventVisualizer key={index} event={event} />
                       ))}
                     </div>
                   </div>
@@ -1458,22 +1671,7 @@ export default function OrderManagementDemo() {
                         </div>
                         <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
                           {orderEvents.map((event, index) => (
-                            <div key={`order-${event.id || index}`} className="border rounded p-2 bg-blue-50 flex-shrink-0">
-                              <div className="flex justify-between items-start mb-1">
-                                <div>
-                                  <div className="font-medium text-xs">{event.type}</div>
-                                  <div className="text-xs text-gray-500">v{event.version} | {event.aggregateId.substring(0, 8)}...</div>
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {new Date(event.timestamp).toLocaleTimeString()}
-                                </div>
-                              </div>
-                              <div className="text-xs bg-white p-1 rounded font-mono max-h-16 overflow-hidden border">
-                                <div className="line-clamp-3">
-                                  {JSON.stringify(event.data, null, 1)}
-                                </div>
-                              </div>
-                            </div>
+                            <EventVisualizer key={`order-${event.id || index}`} event={event} />
                           ))}
                         </div>
 
@@ -1548,22 +1746,7 @@ export default function OrderManagementDemo() {
                         <div className="text-xs font-semibold text-green-600 mb-2">All System Events:</div>
                         <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
                           {allEvents.map((event, index) => (
-                            <div key={`all-${event.id || index}`} className="border rounded p-2 bg-green-50 flex-shrink-0">
-                              <div className="flex justify-between items-start mb-1">
-                                <div>
-                                  <div className="font-medium text-xs">{event.type}</div>
-                                  <div className="text-xs text-gray-500">v{event.version} | {event.aggregateId.substring(0, 8)}...</div>
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  {new Date(event.timestamp).toLocaleTimeString()}
-                                </div>
-                              </div>
-                              <div className="text-xs bg-white p-1 rounded font-mono max-h-16 overflow-hidden border">
-                                <div className="line-clamp-3">
-                                  {JSON.stringify(event.data, null, 1)}
-                                </div>
-                              </div>
-                            </div>
+                            <EventVisualizer key={`all-${event.id || index}`} event={event} />
                           ))}
                         </div>
                         
