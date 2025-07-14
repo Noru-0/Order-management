@@ -906,17 +906,38 @@ export default function OrderManagementDemo() {
               <div className="flex justify-between">
                 <span className="text-xs font-medium">Target:</span>
                 <span className="text-xs">
-                  {data.targetVersion ? `Version ${data.targetVersion}` : 
-                   data.targetTimestamp ? new Date(data.targetTimestamp).toLocaleString() : 'Unknown'}
+                  {data.rollbackPoint || 
+                   (data.rollbackType === 'version' ? `Version ${data.rollbackValue}` : 
+                    data.rollbackType === 'timestamp' ? new Date(data.rollbackValue).toLocaleString() : 
+                    data.targetVersion ? `Version ${data.targetVersion}` : 
+                    data.targetTimestamp ? new Date(data.targetTimestamp).toLocaleString() : 'Unknown')}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-xs font-medium">Events Undone:</span>
                 <span className="text-xs font-semibold text-orange-600">{data.eventsUndone || 0}</span>
               </div>
-              {data.rollbackReason && (
+              {data.rollbackType && (
+                <div className="flex justify-between">
+                  <span className="text-xs font-medium">Type:</span>
+                  <span className="text-xs capitalize">{data.rollbackType}</span>
+                </div>
+              )}
+              {(data.rollbackReason || data.reason) && (
                 <div className="mt-1 pt-1 border-t border-gray-200">
-                  <span className="text-xs text-gray-600">{data.rollbackReason}</span>
+                  <span className="text-xs text-gray-600">{data.rollbackReason || data.reason}</span>
+                </div>
+              )}
+              {data.previousState && data.newState && (
+                <div className="mt-1 pt-1 border-t border-gray-200 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-xs font-medium">Before:</span>
+                    <span className="text-xs">{data.previousState.status} (${data.previousState.totalAmount})</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs font-medium">After:</span>
+                    <span className="text-xs">{data.newState.status} (${data.newState.totalAmount})</span>
+                  </div>
                 </div>
               )}
             </div>
