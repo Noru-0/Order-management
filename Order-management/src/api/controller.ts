@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { OrderCommandHandlers } from '../commands/handlers';
 import { EventStore } from '../infrastructure/event-store';
 import { Order, OrderStatus } from '../domain/Order';
-import { BaseEvent } from '../events/types';
+import { BaseEvent, OrderRolledBackEvent } from '../events/types';
 
 export class OrderController {
   constructor(
@@ -164,7 +164,38 @@ export class OrderController {
     let order: Order | null = null;
     events.sort((a, b) => a.version - b.version);
 
-    for (const event of events) {
+    // Check if there's a rollback event and find the latest one
+    const rollbackEvents = events.filter(e => e.type === 'OrderRolledBack');
+    
+    const latestRollback = rollbackEvents.length > 0 ? 
+      rollbackEvents.reduce((latest, current) => current.version > latest.version ? current : latest) : null;
+
+    // If there's a rollback, filter events to only include those up to the rollback point
+    let eventsToProcess = events;
+    if (latestRollback) {
+      const rollbackData = latestRollback.data;
+      
+      // Exclude all rollback events first
+      const nonRollbackEvents = events.filter(event => event.type !== 'OrderRolledBack');
+      
+      if (rollbackData.rollbackType === 'version') {
+        eventsToProcess = nonRollbackEvents.filter(event => 
+          event.version <= rollbackData.rollbackValue
+        );
+      } else if (rollbackData.rollbackType === 'timestamp') {
+        const rollbackDate = new Date(rollbackData.rollbackValue);
+        eventsToProcess = nonRollbackEvents.filter(event => 
+          new Date(event.timestamp) <= rollbackDate
+        );
+      }
+      
+      console.log(`[DEBUG] Rollback detected: ${rollbackData.rollbackPoint}, processing ${eventsToProcess.length} events out of ${nonRollbackEvents.length} non-rollback events (${rollbackData.eventsUndone} events undone)`);
+      console.log('[DEBUG] Events to process:', eventsToProcess.map(e => `${e.type} v${e.version}`).join(', '));
+    } else {
+      console.log(`[DEBUG] No rollback events found, processing all ${events.length} events`);
+    }
+
+    for (const event of eventsToProcess) {
       switch (event.type) {
         case 'OrderCreated':
           order = new Order(
@@ -188,6 +219,9 @@ export class OrderController {
           if (order) {
             order = order.removeItem(event.data.productId);
           }
+          break;
+        case 'OrderRolledBack':
+          // Should not reach here due to filtering above, but keep for safety
           break;
       }
     }
@@ -311,6 +345,175 @@ export class OrderController {
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Health check failed'
+      });
+    }
+  }
+
+  async rollbackOrder(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { toVersion, toTimestamp } = req.body;
+
+      // Validate input
+      if (!toVersion && !toTimestamp) {
+        res.status(400).json({
+          success: false,
+          error: 'Either toVersion or toTimestamp must be provided'
+        });
+        return;
+      }
+
+      // Get all events for the order
+      const allEvents = await this.eventStore.getEvents(id);
+      
+      if (allEvents.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
+      // Store the original state before rollback
+      const originalOrder = this.rebuildOrderFromEvents(allEvents);
+      
+      if (!originalOrder) {
+        res.status(400).json({
+          success: false,
+          error: 'Cannot rebuild original order state'
+        });
+        return;
+      }
+
+      // Filter events based on rollback criteria
+      let eventsToKeep: BaseEvent[];
+      
+      if (toVersion) {
+        eventsToKeep = allEvents.filter(event => event.version <= toVersion);
+      } else {
+        const rollbackDate = new Date(toTimestamp);
+        eventsToKeep = allEvents.filter(event => new Date(event.timestamp) <= rollbackDate);
+      }
+
+      if (eventsToKeep.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'No events found for the specified rollback point'
+        });
+        return;
+      }
+
+      // Rebuild order state from filtered events
+      const rolledBackOrder = this.rebuildOrderFromEvents(eventsToKeep);
+      
+      if (!rolledBackOrder) {
+        res.status(400).json({
+          success: false,
+          error: 'Cannot rebuild rolled back order state'
+        });
+        return;
+      }
+      
+      // Get the events that will be "undone"
+      const undoneEvents = allEvents.slice(eventsToKeep.length);
+
+      // Create rollback event and save it to event store
+      const rollbackEvent: OrderRolledBackEvent = {
+        type: 'OrderRolledBack',
+        aggregateId: id,
+        version: allEvents.length + 1, // Next version number
+        timestamp: new Date(),
+        data: {
+          orderId: id,
+          rollbackPoint: toVersion ? `Version ${toVersion}` : `Timestamp ${toTimestamp}`,
+          rollbackType: toVersion ? 'version' : 'timestamp',
+          rollbackValue: toVersion || toTimestamp,
+          eventsUndone: undoneEvents.length,
+          previousState: {
+            status: originalOrder.status,
+            totalAmount: originalOrder.totalAmount,
+            itemCount: originalOrder.items.length
+          },
+          newState: {
+            status: rolledBackOrder.status,
+            totalAmount: rolledBackOrder.totalAmount,
+            itemCount: rolledBackOrder.items.length
+          }
+        }
+      };
+
+      // Save the rollback event
+      await this.eventStore.saveEvent(rollbackEvent);
+
+      res.json({
+        success: true,
+        data: {
+          originalOrder: originalOrder,
+          rolledBackOrder: rolledBackOrder,
+          rollbackPoint: toVersion ? `Version ${toVersion}` : `Timestamp ${toTimestamp}`,
+          eventsKept: eventsToKeep.length,
+          eventsUndone: undoneEvents.length,
+          rollbackEvent: {
+            id: rollbackEvent.aggregateId,
+            type: rollbackEvent.type,
+            version: rollbackEvent.version,
+            timestamp: rollbackEvent.timestamp
+          },
+          undoneEvents: undoneEvents.map(event => ({
+            type: event.type,
+            version: event.version,
+            timestamp: event.timestamp,
+            data: event.data
+          }))
+        },
+        message: `Order rolled back to ${toVersion ? `version ${toVersion}` : `timestamp ${toTimestamp}`}. Rollback event recorded as version ${rollbackEvent.version}.`
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Rollback failed'
+      });
+    }
+  }
+
+  async debugRebuildOrder(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const events = await this.eventStore.getEvents(id);
+      
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
+      // Capture debug info
+      const debugInfo = {
+        totalEvents: events.length,
+        events: events.map(e => ({ type: e.type, version: e.version, timestamp: e.timestamp })),
+        rollbackEvents: events.filter(e => e.type === 'OrderRolledBack'),
+        rebuildResult: null as any
+      };
+
+      // Test rebuild with detailed logging
+      const order = this.rebuildOrderFromEvents(events);
+      debugInfo.rebuildResult = order ? {
+        id: order.id,
+        status: order.status,
+        itemCount: order.items.length,
+        totalAmount: order.totalAmount
+      } : null;
+
+      res.json({
+        success: true,
+        data: debugInfo
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Debug failed'
       });
     }
   }

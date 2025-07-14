@@ -48,14 +48,22 @@ export default function OrderManagementDemo() {
     getEvents: false,
     getAllOrders: false,
     getAllEvents: false,
+    rollback: false,
   })
+
+  // Input states
+  const [rollbackOrderId, setRollbackOrderId] = useState("")
+  const [rollbackVersion, setRollbackVersion] = useState("")
+  const [rollbackTimestamp, setRollbackTimestamp] = useState("")
 
   // Response states
   const [currentOrder, setCurrentOrder] = useState<OrderResponse | null>(null)
+  const [currentOrderLastUpdated, setCurrentOrderLastUpdated] = useState<Date | null>(null)
   const [orderEvents, setOrderEvents] = useState<EventResponse[]>([])
   const [allOrders, setAllOrders] = useState<OrderResponse[]>([])
   const [allEvents, setAllEvents] = useState<EventResponse[]>([])
   const [lastResponse, setLastResponse] = useState<string>("")
+  const [rollbackResult, setRollbackResult] = useState<any>(null)
 
   // Helper functions
   const setLoadingState = (key: keyof typeof loading, value: boolean) => {
@@ -74,12 +82,9 @@ export default function OrderManagementDemo() {
   const handleCreateOrder = async () => {
     setLoadingState("createOrder", true)
     try {
-      console.log("Creating order with data:", createOrderForm)
       const response = await orderApi.createOrder(createOrderForm)
-      console.log("Create Order Response:", response)
       showResponse(response, "Create Order")
       if (response.success && response.data) {
-        console.log("Order created successfully:", response.data)
         setOrderId(response.data.orderId)
         setSearchOrderId(response.data.orderId)
       }
@@ -98,6 +103,9 @@ export default function OrderManagementDemo() {
       showResponse(response, "Get Order")
       if (response.success && response.data) {
         setCurrentOrder(response.data)
+        setCurrentOrderLastUpdated(new Date())
+        // Set orderId to enable other operations (add item, remove item, update status)
+        setOrderId(searchOrderId)
       }
     } catch (error) {
       showError("Network error", "Get Order")
@@ -151,15 +159,11 @@ export default function OrderManagementDemo() {
     }
     setLoadingState("getEvents", true)
     try {
-      console.log("Getting events for order:", searchOrderId)
       const response = await orderApi.getOrderEvents(searchOrderId)
-      console.log("Get Order Events Response:", response)
       showResponse(response, "Get Order Events")
       if (response.success && response.data && response.data.events) {
-        console.log("Setting order events:", response.data.events)
         setOrderEvents(response.data.events)
       } else {
-        console.log("No events data or failed response:", response)
         setOrderEvents([])
       }
     } catch (error) {
@@ -186,15 +190,11 @@ export default function OrderManagementDemo() {
   const handleGetAllEvents = async () => {
     setLoadingState("getAllEvents", true)
     try {
-      console.log("Getting all events...")
       const response = await orderApi.getAllEvents()
-      console.log("Get All Events Response:", response)
       showResponse(response, "Get All Events")
       if (response.success && response.data && response.data.events) {
-        console.log("Setting all events:", response.data.events)
         setAllEvents(response.data.events)
       } else {
-        console.log("No events data or failed response:", response)
         setAllEvents([])
       }
     } catch (error) {
@@ -204,15 +204,89 @@ export default function OrderManagementDemo() {
     setLoadingState("getAllEvents", false)
   }
 
+  const handleRollback = async () => {
+    if (!rollbackOrderId) {
+      showError("Vui lòng nhập Order ID để rollback", "Rollback")
+      return
+    }
+
+    if (!rollbackVersion && !rollbackTimestamp) {
+      showError("Vui lòng nhập Version hoặc Timestamp để rollback", "Rollback")
+      return
+    }
+
+    setLoadingState("rollback", true)
+    try {
+      const version = rollbackVersion ? parseInt(rollbackVersion) : undefined
+      const response = await orderApi.rollbackOrder(rollbackOrderId, version, rollbackTimestamp)
+      showResponse(response, "Rollback")
+      
+      if (response.success && response.data) {
+        setRollbackResult(response.data)
+        
+        // Auto-refresh data after successful rollback
+        // Refresh functions without changing loading states
+        const refreshCurrentOrder = async () => {
+          try {
+            const orderResponse = await orderApi.getOrder(rollbackOrderId)
+            if (orderResponse.success && orderResponse.data) {
+              setCurrentOrder(orderResponse.data)
+              setCurrentOrderLastUpdated(new Date())
+              setOrderId(rollbackOrderId)
+              setSearchOrderId(rollbackOrderId)
+            }
+          } catch (error) {
+            console.error("Error refreshing current order:", error)
+          }
+        }
+        
+        const refreshAllOrders = async () => {
+          try {
+            const allOrdersResponse = await orderApi.getAllOrders()
+            if (allOrdersResponse.success && allOrdersResponse.data) {
+              setAllOrders(allOrdersResponse.data)
+            }
+          } catch (error) {
+            console.error("Error refreshing all orders:", error)
+          }
+        }
+        
+        const refreshOrderEvents = async () => {
+          try {
+            const eventsResponse = await orderApi.getOrderEvents(rollbackOrderId)
+            if (eventsResponse.success && eventsResponse.data && eventsResponse.data.events) {
+              setOrderEvents(eventsResponse.data.events)
+            }
+          } catch (error) {
+            console.error("Error refreshing order events:", error)
+          }
+        }
+        
+        // Execute refreshes in parallel
+        await Promise.all([
+          refreshCurrentOrder(),
+          refreshAllOrders(),
+          refreshOrderEvents()
+        ])
+        
+      } else {
+        setRollbackResult(null)
+      }
+    } catch (error) {
+      console.error("Rollback Error:", error)
+      showError("Network error", "Rollback")
+      setRollbackResult(null)
+    }
+    setLoadingState("rollback", false)
+  }
+
   const handleHealthCheck = async () => {
     try {
-      console.log("Checking backend health...")
       const response = await orderApi.healthCheck()
-      console.log("Health check response:", response)
       showResponse(response, "Health Check")
     } catch (error) {
       console.error("Health check error:", error)
-      showError("Backend không hoạt động", "Health Check")
+      showError("Network error", "Health Check")
     }
   }
 
@@ -444,8 +518,9 @@ export default function OrderManagementDemo() {
                 <div className="flex items-end">
                   <Button 
                     onClick={handleUpdateStatus} 
-                    disabled={loading.updateStatus}
+                    disabled={loading.updateStatus || !orderId}
                     className="w-full"
+                    title={!orderId ? "Please select an order first" : "Update order status"}
                   >
                     {loading.updateStatus && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Update Status
@@ -483,8 +558,9 @@ export default function OrderManagementDemo() {
                 </div>
                 <Button 
                   onClick={handleAddItem} 
-                  disabled={loading.addItem}
+                  disabled={loading.addItem || !orderId || !newItem.productId}
                   className="w-full mt-2"
+                  title={!orderId ? "Please select an order first" : !newItem.productId ? "Please enter product ID" : "Add item to order"}
                 >
                   {loading.addItem && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Add Item to Order
@@ -505,13 +581,14 @@ export default function OrderManagementDemo() {
               </CardTitle>
               <CardDescription className="text-sm">Truy vấn thông tin order và events</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 pt-0">
+            <CardContent className="space-y-2 pt-0">
               <div>
-                <Label>Search Order ID</Label>
+                <Label className="text-xs">Search Order ID</Label>
                 <Input
                   value={searchOrderId}
                   onChange={(e) => setSearchOrderId(e.target.value)}
                   placeholder="Order ID để tìm kiếm"
+                  className="h-8"
                 />
               </div>
 
@@ -519,39 +596,88 @@ export default function OrderManagementDemo() {
                 <Button 
                   onClick={handleGetOrder} 
                   disabled={loading.getOrder}
-                  className="w-full"
+                  className="w-full h-8 text-xs"
                 >
-                  {loading.getOrder && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading.getOrder && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                   Get Order
                 </Button>
                 <Button 
                   onClick={handleGetOrderEvents} 
                   disabled={loading.getEvents}
-                  className="w-full"
+                  className="w-full h-8 text-xs"
                 >
-                  {loading.getEvents && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading.getEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                   Get Events
                 </Button>
               </div>
-
-              <Separator />
 
               <div className="grid grid-cols-2 gap-2">
                 <Button 
                   onClick={handleGetAllOrders} 
                   disabled={loading.getAllOrders}
-                  className="w-full"
+                  className="w-full h-8 text-xs"
                 >
-                  {loading.getAllOrders && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading.getAllOrders && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                   All Orders
                 </Button>
                 <Button 
                   onClick={handleGetAllEvents} 
                   disabled={loading.getAllEvents}
-                  className="w-full"
+                  className="w-full h-8 text-xs"
                 >
-                  {loading.getAllEvents && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading.getAllEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                   All Events
+                </Button>
+              </div>
+
+              <Separator />
+
+              {/* Rollback Section */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
+                
+                <div>
+                  <Label htmlFor="rollbackOrderId" className="text-xs">Order ID</Label>
+                  <Input
+                    id="rollbackOrderId"
+                    value={rollbackOrderId}
+                    onChange={(e) => setRollbackOrderId(e.target.value)}
+                    placeholder="order-uuid"
+                    className="h-8"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="rollbackVersion" className="text-xs">Version</Label>
+                    <Input
+                      id="rollbackVersion"
+                      type="number"
+                      value={rollbackVersion}
+                      onChange={(e) => setRollbackVersion(e.target.value)}
+                      placeholder="1,2,3..."
+                      className="h-8"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="rollbackTimestamp" className="text-xs">Timestamp</Label>
+                    <Input
+                      id="rollbackTimestamp"
+                      type="datetime-local"
+                      value={rollbackTimestamp}
+                      onChange={(e) => setRollbackTimestamp(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={handleRollback} 
+                  disabled={loading.rollback}
+                  className="w-full bg-orange-600 hover:bg-orange-700 h-8 text-xs"
+                >
+                  {loading.rollback && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {loading.rollback ? "Rolling back & refreshing..." : "🔄 Rollback"}
                 </Button>
               </div>
             </CardContent>
@@ -565,7 +691,7 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="h-full pt-0 p-3">
               {lastResponse ? (
-                <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto h-full max-h-[36rem] m-4">
+                <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto h-full max-h-[24rem] m-4">
                   {lastResponse}
                 </pre>
               ) : (
@@ -582,8 +708,35 @@ export default function OrderManagementDemo() {
           {/* Current Order */}
           <Card className="flex-shrink-0">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Current Order</CardTitle>
-              <CardDescription className="text-sm">Thông tin order hiện tại</CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle className="text-base">Current Order</CardTitle>
+                  <CardDescription className="text-sm">
+                    Thông tin order hiện tại
+                    {currentOrderLastUpdated && (
+                      <span className="block text-xs text-gray-400 mt-1">
+                        Last updated: {currentOrderLastUpdated.toLocaleTimeString()}
+                      </span>
+                    )}
+                  </CardDescription>
+                </div>
+                {currentOrder && (
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      if (currentOrder.id) {
+                        setSearchOrderId(currentOrder.id);
+                        handleGetOrder();
+                      }
+                    }}
+                    className="text-xs"
+                    title="Refresh current order data"
+                  >
+                    🔄 Refresh
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-3 max-h-52 overflow-y-auto">
               {currentOrder ? (
@@ -622,7 +775,8 @@ export default function OrderManagementDemo() {
                         <Button
                           className="h-6 w-6 p-0 ml-2"
                           onClick={() => handleRemoveItem(item.productId)}
-                          disabled={loading.removeItem}
+                          disabled={loading.removeItem || !orderId}
+                          title={!orderId ? "Please select an order first" : "Remove item"}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -637,6 +791,89 @@ export default function OrderManagementDemo() {
               )}
             </CardContent>
           </Card>
+
+          {/* Rollback Result Display */}
+          {rollbackResult && (
+            <Card className="mb-3">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base text-orange-600">🔄 Rollback Result</CardTitle>
+                <CardDescription>Event Sourcing Time Travel Demo</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Original Order */}
+                  <div className="border rounded p-3">
+                    <h4 className="font-semibold text-sm mb-2 text-blue-600">📋 Current Order State</h4>
+                    <div className="text-xs space-y-1">
+                      <p><strong>ID:</strong> {rollbackResult.originalOrder?.id}</p>
+                      <p><strong>Status:</strong> <span className="px-2 py-1 bg-blue-100 rounded text-blue-800">{rollbackResult.originalOrder?.status}</span></p>
+                      <p><strong>Items:</strong> {rollbackResult.originalOrder?.items?.length || 0}</p>
+                      <p><strong>Total:</strong> ${rollbackResult.originalOrder?.totalAmount?.toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  {/* Rolled Back Order */}
+                  <div className="border rounded p-3 bg-orange-50">
+                    <h4 className="font-semibold text-sm mb-2 text-orange-600">⏮️ Rolled Back State</h4>
+                    <div className="text-xs space-y-1">
+                      <p><strong>ID:</strong> {rollbackResult.rolledBackOrder?.id}</p>
+                      <p><strong>Status:</strong> <span className="px-2 py-1 bg-orange-100 rounded text-orange-800">{rollbackResult.rolledBackOrder?.status}</span></p>
+                      <p><strong>Items:</strong> {rollbackResult.rolledBackOrder?.items?.length || 0}</p>
+                      <p><strong>Total:</strong> ${rollbackResult.rolledBackOrder?.totalAmount?.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3">
+                  <h4 className="font-semibold text-sm mb-2">📊 Rollback Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div className="text-center">
+                      <div className="font-semibold text-green-600">{rollbackResult.eventsKept}</div>
+                      <div className="text-gray-600">Events Kept</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-semibold text-red-600">{rollbackResult.eventsUndone}</div>
+                      <div className="text-gray-600">Events Undone</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-semibold text-blue-600">{rollbackResult.rollbackPoint}</div>
+                      <div className="text-gray-600">Rollback Point</div>
+                    </div>
+                    <div className="text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRollbackResult(null)}
+                        className="text-xs px-2 py-1"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  {rollbackResult.rollbackEvent && (
+                    <div className="mt-2 p-2 bg-purple-50 rounded border-l-2 border-purple-200">
+                      <div className="text-xs">
+                        <strong>📝 Rollback Event Created:</strong> Version {rollbackResult.rollbackEvent.version} at {new Date(rollbackResult.rollbackEvent.timestamp).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {rollbackResult.undoneEvents && rollbackResult.undoneEvents.length > 0 && (
+                  <div className="border-t pt-3">
+                    <h4 className="font-semibold text-sm mb-2">❌ Undone Events</h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {rollbackResult.undoneEvents.map((event: any, index: number) => (
+                        <div key={index} className="text-xs p-2 bg-red-50 rounded border-l-2 border-red-200">
+                          <strong>{event.type}</strong> (v{event.version}) - {new Date(event.timestamp).toLocaleString()}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Grid layout for All Orders and Order Events */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 flex-1 min-h-0">

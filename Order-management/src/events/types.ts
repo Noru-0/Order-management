@@ -44,8 +44,22 @@ export interface OrderItemRemovedEvent extends BaseEvent {
   };
 }
 
+export interface OrderRolledBackEvent extends BaseEvent {
+  type: 'OrderRolledBack';
+  data: {
+    orderId: string;
+    rollbackPoint: string; // version or timestamp
+    rollbackType: 'version' | 'timestamp';
+    rollbackValue: number | string;
+    eventsUndone: number;
+    previousState: any; // snapshot of state before rollback
+    newState: any; // snapshot of state after rollback
+  };
+}
+
 export type OrderEvent = 
   | OrderCreatedEvent 
   | OrderStatusUpdatedEvent 
   | OrderItemAddedEvent 
-  | OrderItemRemovedEvent;
+  | OrderItemRemovedEvent
+  | OrderRolledBackEvent;

@@ -186,6 +186,21 @@ class OrderApiClient {
   async getAllEvents(): Promise<ApiResponse<AllEventsResponse>> {
     return this.request('/debug/events');
   }
+
+  // Rollback order (debug/demo)
+  async rollbackOrder(orderId: string, toVersion?: number, toTimestamp?: string): Promise<ApiResponse<any>> {
+    const body: any = {};
+    if (toVersion !== undefined) body.toVersion = toVersion;
+    if (toTimestamp) body.toTimestamp = toTimestamp;
+    
+    return this.request(`/debug/orders/${orderId}/rollback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+  }
 }
 
 export const orderApi = new OrderApiClient();

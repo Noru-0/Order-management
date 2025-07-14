@@ -85,5 +85,23 @@ export function createOrderRoutes(orderController: OrderController): express.Rou
     }
   });
 
+  // Rollback endpoint for Event Sourcing demo
+  router.post('/debug/orders/:id/rollback', async (req, res, next) => {
+    try {
+      await orderController.rollbackOrder(req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Debug rebuild endpoint
+  router.get('/debug/orders/:id/rebuild', async (req, res, next) => {
+    try {
+      await orderController.debugRebuildOrder(req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }

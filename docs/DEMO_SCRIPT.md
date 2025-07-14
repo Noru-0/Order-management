@@ -253,10 +253,176 @@ Action: Add Item
 
 ---
 
+### **PHẦN 7: DEMO EVENT SOURCING TIME TRAVEL - ROLLBACK (4 phút)**
+
+**Bước 11: Setup cho Rollback Demo**
+**Người thuyết trình:**
+> "Bây giờ đến phần thú vị nhất - khả năng Time Travel của Event Sourcing! Tôi sẽ đưa order trở lại trạng thái ở quá khứ mà không mất dữ liệu."
+
+**Action:** Chọn một order đã có nhiều events (từ demo trước)
+
+**Bước 12: Hiển thị trạng thái hiện tại**
+**Action:** Click "Get Order" và "Get Events" để xem trạng thái hiện tại
+
+**Người thuyết trình:**
+> "Quan sát order hiện tại:
+> - Có thể 4-5 events: OrderCreated → StatusUpdated → ItemAdded → ItemRemoved...
+> - Status: SHIPPED 
+> - Items: Đã có modifications
+> - Total Amount: Đã thay đổi nhiều lần
+>
+> Bây giờ tôi sẽ đưa order này về trạng thái version 1 - như lúc vừa tạo!"
+
+**Bước 13: Thực hiện Rollback**
+```
+Action: Rollback Demo Section
+- Order ID: (copy từ current order)
+- Version: 1 (hoặc 2)
+- Leave Timestamp empty
+```
+
+**Action:** Click "🔄 Rollback"
+
+**Người thuyết trình:**
+> "🔄 Rollback đang thực hiện Time Travel...
+>
+> **Điều gì đang xảy ra behind-the-scenes:**
+> 1. System query ALL events của order
+> 2. Tạo OrderRolledBack event mới (không xóa events cũ!)
+> 3. Rebuild order từ events ≤ version 1
+> 4. Auto-refresh UI để hiển thị kết quả
+>
+> **Quan trọng:** Rollback KHÔNG XÓA dữ liệu - chỉ thêm metadata!"
+
+**Bước 14: Phân tích Rollback Result**
+**Người thuyết trình:**
+> "Quan sát Rollback Result section - đây là summary của phép Time Travel:
+
+**Current Order State (Before Rollback):**
+> - Status: SHIPPED
+> - Items: Multiple items với modifications
+> - Total: $X,XXX
+
+**⏮️ Rolled Back State (After Rollback):**
+> - Status: PENDING (trạng thái gốc!)
+> - Items: Chỉ items ban đầu
+> - Total: Giá trị gốc
+
+**📊 Rollback Summary:**
+> - Events Kept: 1-2 (chỉ events trước rollback point)
+> - Events Undone: 3-4 (events sau rollback point)
+> - Rollback Point: Version 1
+
+**Key Insight:** Order đã 'time travel' về quá khứ!"
+
+**Bước 15: Chứng minh Data Integrity**
+**Action:** Click "Get Events" sau rollback
+
+**Người thuyết trình:**
+> "Đây là điểm thần kỳ của Event Sourcing! 
+
+**Event History sau Rollback:**
+> 1. OrderCreated (v1) ✓ - vẫn còn
+> 2. OrderStatusUpdated (v2) ✓ - vẫn còn  
+> 3. OrderItemAdded (v3) ✓ - vẫn còn
+> 4. OrderItemRemoved (v4) ✓ - vẫn còn
+> 5. **OrderRolledBack (v5)** 🆕 - event mới!
+
+**KHÔNG MỘT EVENT NÀO BỊ XÓA!**
+
+**OrderRolledBack Event chứa:**
+> - rollbackPoint: 'Version 1'
+> - eventsUndone: 3 events
+> - previousState vs newState comparison
+> - Complete audit trail của rollback action
+
+**Rebuild Logic sau Rollback:**
+> ```
+> When GET /orders/{id}:
+> 1. Query all events [v1, v2, v3, v4, v5]
+> 2. Detect OrderRolledBack event (v5)
+> 3. Filter: only process events ≤ rollback point (v1)
+> 4. Apply only: [OrderCreated(v1)]
+> 5. Result: Order in original state
+> ```"
+
+**Bước 16: Time Travel Verification**
+**Action:** Click "Get Order" và compare với Current Order section
+
+**Người thuyết trình:**
+> "Verification hoàn tất! So sánh:
+
+**Current Order (Post-Rollback):**
+> - Status: PENDING ✓
+> - Items: Original items only ✓
+> - Total: Original amount ✓
+> - Last updated timestamp: Recent ✓
+
+**Event OrderCreated (v1) data:**
+> - Status: PENDING ✓ (match!)
+> - Items: Same original items ✓ (match!)
+> - Customer: Same ✓ (match!)
+
+**Proof of Time Travel:** Current state = State at Version 1!
+
+**But we can still 'travel forward' nếu cần - vì ALL EVENTS vẫn tồn tại!"
+
+**Bước 17: Demonstrate Rollback Auditability**
+**Người thuyết trình:**
+> "Event Sourcing Rollback khác hoàn toàn Database Rollback:
+
+**Traditional Database Rollback:**
+> ```sql
+> BEGIN TRANSACTION;
+> DELETE FROM order_items WHERE order_id = 'xxx' AND created_after = '2024-01-01';
+> UPDATE orders SET status = 'PENDING' WHERE id = 'xxx';
+> COMMIT;
+> ```
+> ❌ **Data Loss:** Không biết items nào đã bị xóa
+> ❌ **No Audit:** Không biết ai rollback, tại sao
+> ❌ **Irreversible:** Không thể undo rollback
+
+**Event Sourcing Rollback:**
+> ```
+> Append: OrderRolledBack Event {
+>   rollbackPoint: 'Version 1',
+>   triggeredBy: 'user-123',
+>   reason: 'Customer request',
+>   undoneEvents: [v2, v3, v4],
+>   timestamp: '2024-01-15T10:30:00Z'
+> }
+> ```
+> ✅ **Zero Data Loss:** All events preserved
+> ✅ **Complete Audit:** Who, when, why, what was undone
+> ✅ **Reversible:** Can rollback the rollback!
+
+**Business Value:**
+> - Compliance: Complete audit trail for regulatory
+> - Recovery: Can undo accidental rollbacks
+> - Analysis: Understand patterns of rollback requests
+> - Debugging: Exact reproduction of any historical state"
+
+---
+
 ## 🎯 Kết Luận Demo
 
 **Người thuyết trình:**
 > "Event Sourcing không chỉ là một pattern kỹ thuật mà còn là cách tiếp cận business-centric, giúp chúng ta hiểu rõ 'điều gì đã xảy ra' thay vì chỉ 'trạng thái hiện tại là gì'.
+
+> **Những gì chúng ta đã demo:**
+> 1. **Event Generation:** Mọi business action tạo events
+> 2. **State Rebuild:** Current state = replay events  
+> 3. **Immutable History:** Events không bao giờ bị mất
+> 4. **Time Travel:** Rollback về bất kỳ thời điểm nào
+> 5. **Perfect Auditability:** Complete trail của mọi thay đổi
+> 6. **Zero Data Loss:** Rollback không phá hủy dữ liệu
+
+> **Use Cases lý tưởng:**
+> - **Financial Systems:** Audit trail cho compliance
+> - **E-commerce:** Rollback orders, analyze customer behavior  
+> - **Healthcare:** Patient history không được phép mất
+> - **Legal Systems:** Evidence trail immutable
+> - **IoT/Monitoring:** Time-series data analysis
 
 > Điều này đặc biệt quan trọng trong các hệ thống tài chính, e-commerce, và bất kỳ domain nào cần transparency và traceability cao."
 
@@ -277,6 +443,15 @@ A: Events compress tốt, có thể archive events cũ. Trade-off giữa storage
 
 **Q: Eventual consistency được handle như thế nào?**
 A: Event ordering và timestamp đảm bảo consistency. CQRS pattern giúp separate read/write concerns.
+
+**Q: Rollback có thể bị abuse không?**
+A: Rollback tạo audit trail, có thể restrict permissions. Business rules có thể limit rollback scope.
+
+**Q: Performance của rollback với nhiều events?**
+A: Snapshot patterns giúp optimize. Rollback về snapshot gần nhất thay vì replay từ đầu.
+
+**Q: Làm sao handle concurrent rollbacks?**
+A: Event versioning và optimistic locking. Rollback conflicts tạo events riêng để audit.
 
 ---
 
@@ -303,19 +478,32 @@ Event Sourcing: GET /orders/123 → Query events → Rebuild → Return object
 - Event data trước = Current state sau khi rebuild
 - Thay đổi tạo event mới, không update event cũ
 - Multiple events → single current state
+- **Rollback tạo event mới, không xóa events cũ**
+- **Time travel hoàn toàn reversible**
+
+### Rollback Demo Key Points
+- **Chọn order có ít nhất 3-4 events** để rollback effect rõ ràng
+- **Highlight data preservation** - events cũ không bị xóa
+- **Show audit trail** của rollback action
+- **Demonstrate reversibility** - có thể rollback cái rollback
+- **Compare với traditional database rollback** để thấy difference
 
 ### Troubleshooting
 - Nếu backend không response: Check terminal logs
 - Nếu events không hiển thị: Verify API endpoint connectivity
 - Nếu UI lag: Reduce event payload size trong demo
+- **Nếu rollback không hoạt động: Check orderId chính xác và có events để rollback**
+- **Nếu rollback result không hiển thị: Refresh browser hoặc check network tab**
 
 ### Demo Tips
 - Chuẩn bị dữ liệu mẫu trước
 - Practice transition giữa các bước
 - Highlight key concepts trong mỗi action
 - Prepare backup scenarios nếu có technical issues
+- **Practice rollback demo với different scenarios (version vs timestamp)**
+- **Prepare explanation cho business value của rollback capability**
 
 ---
 
-*Thời gian demo: 15-20 phút*  
+*Thời gian demo: 20-25 phút (thêm 4-5 phút cho phần rollback)*  
 *Audience: Technical team, stakeholders quan tâm đến architecture decisions*

@@ -6,7 +6,15 @@ A complete order management system demonstrating **Event Sourcing** and **CQRS**
 
 ```
 Frontend (Next.js)  ←→  Backend (Express.js)  ←→  PostgreSQL
-   Port 3000              Port 3001             Port 5432
+   Port 3000              Port 3**Utility Scripts (scripts/ folder):**
+**Batch Scripts (Windows CMD):**
+- `setup.bat` - Complete project setup
+- `start-dev.bat` - Start in separate terminals  
+- `database-setup.bat` - Database setup only
+
+**PowerShell Scripts:**
+- `setup.ps1` - Complete setup (PowerShell)
+- `start-dev.ps1` - Start development servers     Port 5432
                               ↓
                     Event Store & CQRS Pattern
 ```
@@ -123,12 +131,26 @@ cd scripts
 .\demo_script.ps1
 ```
 
+### Rollback Demo (Event Sourcing Time Travel)
+```batch
+REM Demonstrate rollback feature
+cd scripts
+rollback-demo.bat
+```
+
+```powershell
+# PowerShell version
+cd scripts
+.\rollback-demo.ps1
+```
+
 ### Manual Testing via UI
 1. Open http://localhost:3000
 2. Create orders using the form
 3. View order events in real-time
 4. Test order status updates
 5. Add/remove items from orders
+6. **Try rollback feature** - Input Order ID and version/timestamp to see time travel
 
 ## 📊 System Features
 
@@ -137,6 +159,7 @@ cd scripts
 - ✅ **Event Replay**: Rebuild order state from event history
 - ✅ **Audit Trail**: Full history of all order modifications
 - ✅ **Time Travel**: View order state at any point in time
+- ✅ **Rollback Demo**: Demonstrate order state at specific version or timestamp
 - ✅ **Concurrent Updates**: Version-based conflict resolution
 
 ### Business Operations
@@ -174,6 +197,7 @@ GET    /api/health                    # System health check
 GET    /api/debug/events              # Get all events in system
 GET    /api/debug/orders/:id/events   # Get events for specific order
 GET    /api/debug/stats               # Database statistics
+POST   /api/debug/orders/:id/rollback # Rollback order to specific version/time (demo)
 ```
 
 ## 🗄️ Database Schema
@@ -258,6 +282,19 @@ curl -X PUT http://localhost:3001/api/orders/{orderId}/status \
 ### View Order Events
 ```bash
 curl http://localhost:3001/api/debug/orders/{orderId}/events
+```
+
+### Rollback Order (Demo Feature)
+```bash
+# Rollback to specific version
+curl -X POST http://localhost:3001/api/debug/orders/{orderId}/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"toVersion": 2}'
+
+# Rollback to specific timestamp
+curl -X POST http://localhost:3001/api/debug/orders/{orderId}/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"toTimestamp": "2025-07-14T10:30:00.000Z"}'
 ```
 
 ### Response Format
