@@ -49,6 +49,14 @@ export interface OrderEventsResponse {
 export interface AllEventsResponse {
   totalEvents: number;
   events: EventResponse[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
 }
 
 export interface AllOrdersResponse {
@@ -195,8 +203,8 @@ class OrderApiClient {
   }
 
   // Get all events (debug)
-  async getAllEvents(): Promise<ApiResponse<AllEventsResponse>> {
-    return this.request('/debug/events');
+  async getAllEvents(page: number = 1, limit: number = 4): Promise<ApiResponse<AllEventsResponse>> {
+    return this.request(`/debug/events?page=${page}&limit=${limit}`);
   }
 
   // Rollback order (debug/demo)

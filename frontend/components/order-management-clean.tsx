@@ -51,6 +51,34 @@ export default function OrderManagementDemo() {
     rollback: false,
   })
 
+  // Pagination states
+  const [allEventsPagination, setAllEventsPagination] = useState({
+    page: 1,
+    limit: 4, // Tối đa 4 events per page
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false
+  })
+
+  const [allOrdersPagination, setAllOrdersPagination] = useState({
+    page: 1,
+    limit: 8, // Tối đa 4 orders per page
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false
+  })
+
+  const [orderEventsPagination, setOrderEventsPagination] = useState({
+    page: 1,
+    limit: 4, // Tối đa 4 events per page
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrev: false
+  })
+
   // Input states
   const [rollbackOrderId, setRollbackOrderId] = useState("")
   const [rollbackVersion, setRollbackVersion] = useState("")
@@ -215,7 +243,7 @@ export default function OrderManagementDemo() {
     setLoadingState("removeItem", false)
   }
 
-  const handleGetOrderEvents = async () => {
+  const handleGetOrderEvents = async (page: number = 1) => {
     if (!searchOrderId) {
       showError("Vui lòng nhập Order ID để tìm kiếm events", "Get Order Events")
       return
@@ -225,9 +253,42 @@ export default function OrderManagementDemo() {
       const response = await orderApi.getOrderEvents(searchOrderId)
       showResponse(response, "Get Order Events")
       if (response.success && response.data && response.data.events) {
-        setOrderEvents(response.data.events)
+        // Simulate pagination for order events (since API doesn't support it yet)
+        const allOrderEvents = response.data.events
+        const startIndex = (page - 1) * orderEventsPagination.limit
+        const endIndex = startIndex + orderEventsPagination.limit
+        const paginatedEvents = allOrderEvents.slice(startIndex, endIndex)
+        
+        setOrderEvents(paginatedEvents)
+        
+        // Update pagination info
+        setOrderEventsPagination({
+          page: page,
+          limit: orderEventsPagination.limit,
+          total: allOrderEvents.length,
+          totalPages: Math.ceil(allOrderEvents.length / orderEventsPagination.limit),
+          hasNext: endIndex < allOrderEvents.length,
+          hasPrev: page > 1
+        })
+        
+        // Clear all events when showing specific order events
+        setAllEvents([])
+        setAllEventsPagination(prev => ({
+          ...prev,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        }))
       } else {
         setOrderEvents([])
+        setOrderEventsPagination(prev => ({
+          ...prev,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        }))
       }
     } catch (error) {
       console.error("Get Order Events Error:", error)
@@ -236,21 +297,40 @@ export default function OrderManagementDemo() {
     setLoadingState("getEvents", false)
   }
 
-  const handleGetAllOrders = async () => {
+  const handleGetAllOrders = async (page: number = 1) => {
     setLoadingState("getAllOrders", true)
     try {
       const response = await orderApi.getAllOrders()
       showResponse(response, "Get All Orders")
       if (response.success && response.data) {
+        let orders: OrderResponse[] = []
+        
         // Handle both old format (direct array) and new format (with pagination)
         if (Array.isArray(response.data)) {
-          setAllOrders(response.data)
+          orders = response.data
         } else if ((response.data as AllOrdersResponse).orders && Array.isArray((response.data as AllOrdersResponse).orders)) {
-          setAllOrders((response.data as AllOrdersResponse).orders)
+          orders = (response.data as AllOrdersResponse).orders
         } else {
-          setAllOrders([])
+          orders = []
           console.warn("Unexpected response format for getAllOrders:", response.data)
         }
+        
+        // Simulate pagination for all orders (since API doesn't support it yet)
+        const startIndex = (page - 1) * allOrdersPagination.limit
+        const endIndex = startIndex + allOrdersPagination.limit
+        const paginatedOrders = orders.slice(startIndex, endIndex)
+        
+        setAllOrders(paginatedOrders)
+        
+        // Update pagination info
+        setAllOrdersPagination({
+          page: page,
+          limit: allOrdersPagination.limit,
+          total: orders.length,
+          totalPages: Math.ceil(orders.length / allOrdersPagination.limit),
+          hasNext: endIndex < orders.length,
+          hasPrev: page > 1
+        })
       }
     } catch (error) {
       console.error("Get All Orders Error:", error)
@@ -259,21 +339,222 @@ export default function OrderManagementDemo() {
     setLoadingState("getAllOrders", false)
   }
 
-  const handleGetAllEvents = async () => {
+  const handleGetAllEvents = async (page: number = 1) => {
     setLoadingState("getAllEvents", true)
     try {
-      const response = await orderApi.getAllEvents()
+      const response = await orderApi.getAllEvents(page, allEventsPagination.limit)
       showResponse(response, "Get All Events")
       if (response.success && response.data && response.data.events) {
         setAllEvents(response.data.events)
+        // Clear specific order events when showing all events
+        setOrderEvents([])
+        
+        // Update pagination info
+        if (response.data.pagination) {
+          setAllEventsPagination({
+            page: response.data.pagination.page,
+            limit: response.data.pagination.limit,
+            total: response.data.pagination.total,
+            totalPages: response.data.pagination.totalPages,
+            hasNext: response.data.pagination.hasNext,
+            hasPrev: response.data.pagination.hasPrev
+          })
+        } else {
+          // Fallback for non-paginated response
+          setAllEventsPagination(prev => ({
+            ...prev,
+            page: 1,
+            total: response.data?.events?.length || 0,
+            totalPages: 1,
+            hasNext: false,
+            hasPrev: false
+          }))
+        }
       } else {
         setAllEvents([])
+        setAllEventsPagination(prev => ({
+          ...prev,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        }))
       }
     } catch (error) {
       console.error("Get All Events Error:", error)
       showError("Network error", "Get All Events")
     }
     setLoadingState("getAllEvents", false)
+  }
+
+  const handleGetAllEventsClick = () => {
+    handleGetAllEvents(1)
+  }
+
+  const handleGetOrderEventsClick = () => {
+    handleGetOrderEvents(1)
+  }
+
+  const handleGetAllOrdersClick = () => {
+    handleGetAllOrders(1)
+  }
+
+  const handleNextEventsPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (allEventsPagination.hasNext) {
+      handleGetAllEvents(allEventsPagination.page + 1)
+    }
+  }
+
+  const handlePrevEventsPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (allEventsPagination.hasPrev) {
+      handleGetAllEvents(allEventsPagination.page - 1)
+    }
+  }
+
+  const handleGoToEventsPage = (page: number, e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (page >= 1 && page <= allEventsPagination.totalPages && page !== allEventsPagination.page) {
+      handleGetAllEvents(page)
+    }
+  }
+
+  // Order Events pagination handlers
+  const handleNextOrderEventsPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (orderEventsPagination.hasNext) {
+      handleGetOrderEvents(orderEventsPagination.page + 1)
+    }
+  }
+
+  const handlePrevOrderEventsPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (orderEventsPagination.hasPrev) {
+      handleGetOrderEvents(orderEventsPagination.page - 1)
+    }
+  }
+
+  const handleGoToOrderEventsPage = (page: number, e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (page >= 1 && page <= orderEventsPagination.totalPages && page !== orderEventsPagination.page) {
+      handleGetOrderEvents(page)
+    }
+  }
+
+  // All Orders pagination handlers
+  const handleNextOrdersPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (allOrdersPagination.hasNext) {
+      handleGetAllOrders(allOrdersPagination.page + 1)
+    }
+  }
+
+  const handlePrevOrdersPage = (e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (allOrdersPagination.hasPrev) {
+      handleGetAllOrders(allOrdersPagination.page - 1)
+    }
+  }
+
+  const handleGoToOrdersPage = (page: number, e?: React.MouseEvent) => {
+    e?.preventDefault()
+    if (page >= 1 && page <= allOrdersPagination.totalPages && page !== allOrdersPagination.page) {
+      handleGetAllOrders(page)
+    }
+  }
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const { page, totalPages } = allEventsPagination
+    const pageNumbers: number[] = []
+    
+    if (totalPages <= 7) {
+      // Show all pages if 7 or fewer
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i)
+      }
+    } else {
+      // Show smart pagination
+      if (page <= 4) {
+        // Show first 5 pages + ... + last page
+        for (let i = 1; i <= 5; i++) pageNumbers.push(i)
+        if (totalPages > 6) pageNumbers.push(-1) // -1 represents "..."
+        pageNumbers.push(totalPages)
+      } else if (page >= totalPages - 3) {
+        // Show first page + ... + last 5 pages
+        pageNumbers.push(1)
+        if (totalPages > 6) pageNumbers.push(-1)
+        for (let i = totalPages - 4; i <= totalPages; i++) pageNumbers.push(i)
+      } else {
+        // Show first + ... + current-1, current, current+1 + ... + last
+        pageNumbers.push(1)
+        pageNumbers.push(-1)
+        for (let i = page - 1; i <= page + 1; i++) pageNumbers.push(i)
+        pageNumbers.push(-1)
+        pageNumbers.push(totalPages)
+      }
+    }
+    
+    return pageNumbers
+  }
+
+  const getOrderEventsPageNumbers = () => {
+    const { page, totalPages } = orderEventsPagination
+    const pageNumbers: number[] = []
+    
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i)
+      }
+    } else {
+      if (page <= 4) {
+        for (let i = 1; i <= 5; i++) pageNumbers.push(i)
+        if (totalPages > 6) pageNumbers.push(-1)
+        pageNumbers.push(totalPages)
+      } else if (page >= totalPages - 3) {
+        pageNumbers.push(1)
+        if (totalPages > 6) pageNumbers.push(-1)
+        for (let i = totalPages - 4; i <= totalPages; i++) pageNumbers.push(i)
+      } else {
+        pageNumbers.push(1)
+        pageNumbers.push(-1)
+        for (let i = page - 1; i <= page + 1; i++) pageNumbers.push(i)
+        pageNumbers.push(-1)
+        pageNumbers.push(totalPages)
+      }
+    }
+    
+    return pageNumbers
+  }
+
+  const getOrdersPageNumbers = () => {
+    const { page, totalPages } = allOrdersPagination
+    const pageNumbers: number[] = []
+    
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i)
+      }
+    } else {
+      if (page <= 4) {
+        for (let i = 1; i <= 5; i++) pageNumbers.push(i)
+        if (totalPages > 6) pageNumbers.push(-1)
+        pageNumbers.push(totalPages)
+      } else if (page >= totalPages - 3) {
+        pageNumbers.push(1)
+        if (totalPages > 6) pageNumbers.push(-1)
+        for (let i = totalPages - 4; i <= totalPages; i++) pageNumbers.push(i)
+      } else {
+        pageNumbers.push(1)
+        pageNumbers.push(-1)
+        for (let i = page - 1; i <= page + 1; i++) pageNumbers.push(i)
+        pageNumbers.push(-1)
+        pageNumbers.push(totalPages)
+      }
+    }
+    
+    return pageNumbers
   }
 
   const handleRollback = async () => {
@@ -353,14 +634,7 @@ export default function OrderManagementDemo() {
             // Refresh all orders
             const refreshAllOrders = async () => {
               try {
-                const allOrdersResponse = await orderApi.getAllOrders()
-                if (allOrdersResponse.success && allOrdersResponse.data) {
-                  if (Array.isArray(allOrdersResponse.data)) {
-                    setAllOrders(allOrdersResponse.data)
-                  } else if ((allOrdersResponse.data as AllOrdersResponse).orders) {
-                    setAllOrders((allOrdersResponse.data as AllOrdersResponse).orders)
-                  }
-                }
+                await handleGetAllOrders(allOrdersPagination.page)
               } catch (error) {
                 console.error("Error refreshing all orders:", error)
               }
@@ -369,17 +643,23 @@ export default function OrderManagementDemo() {
             // Refresh order events
             const refreshOrderEvents = async () => {
               try {
-                const eventsResponse = await orderApi.getOrderEvents(rollbackOrderId)
-                if (eventsResponse.success && eventsResponse.data && eventsResponse.data.events) {
-                  setOrderEvents(eventsResponse.data.events)
-                }
+                await handleGetOrderEvents(orderEventsPagination.page)
               } catch (error) {
                 console.error("Error refreshing order events:", error)
               }
             }
+
+            // Refresh all events (maintain current page)
+            const refreshAllEvents = async () => {
+              try {
+                await handleGetAllEvents(allEventsPagination.page)
+              } catch (error) {
+                console.error("Error refreshing all events:", error)
+              }
+            }
             
             // Execute refreshes in parallel
-            refreshPromises.push(refreshCurrentOrder(), refreshAllOrders(), refreshOrderEvents())
+            refreshPromises.push(refreshCurrentOrder(), refreshAllOrders(), refreshOrderEvents(), refreshAllEvents())
             await Promise.all(refreshPromises)
             
           } catch (error) {
@@ -750,7 +1030,7 @@ export default function OrderManagementDemo() {
                   Get Order
                 </Button>
                 <Button 
-                  onClick={handleGetOrderEvents} 
+                  onClick={handleGetOrderEventsClick} 
                   disabled={loading.getEvents}
                   className="w-full h-8 text-xs"
                 >
@@ -761,7 +1041,7 @@ export default function OrderManagementDemo() {
 
               <div className="grid grid-cols-2 gap-2">
                 <Button 
-                  onClick={handleGetAllOrders} 
+                  onClick={handleGetAllOrdersClick} 
                   disabled={loading.getAllOrders}
                   className="w-full h-8 text-xs"
                 >
@@ -769,7 +1049,7 @@ export default function OrderManagementDemo() {
                   All Orders
                 </Button>
                 <Button 
-                  onClick={handleGetAllEvents} 
+                  onClick={handleGetAllEventsClick} 
                   disabled={loading.getAllEvents}
                   className="w-full h-8 text-xs"
                 >
@@ -860,9 +1140,9 @@ export default function OrderManagementDemo() {
 
         {/* Column 3 - Current Order & All Orders & Events - 3 fractions */}
         <div className="lg:col-span-3 flex flex-col space-y-3 min-h-0">
-          {/* Current Order */}
+          {/* Current Order - Compact size */}
           <Card className="flex-shrink-0">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 flex-shrink-0">
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="text-base">Current Order</CardTitle>
@@ -893,7 +1173,7 @@ export default function OrderManagementDemo() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-3 max-h-52 overflow-y-auto">
+            <CardContent className="p-3 max-h-36 overflow-y-auto">
               {currentOrder ? (
                 <div className="space-y-2">
                   <div className="flex justify-between">
@@ -947,14 +1227,27 @@ export default function OrderManagementDemo() {
             </CardContent>
           </Card>
 
-          {/* Rollback Result Display */}
+          {/* Rollback Result Display - Compact size */}
           {rollbackResult && (
-            <Card className="mb-3">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base text-orange-600">🔄 Rollback Result</CardTitle>
-                <CardDescription>Event Sourcing Time Travel Demo</CardDescription>
+            <Card className="flex-shrink-0">
+              <CardHeader className="pb-2 flex-shrink-0">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle className="text-base text-orange-600">🔄 Rollback Result</CardTitle>
+                    <CardDescription>Event Sourcing Time Travel Demo</CardDescription>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setRollbackResult(null)}
+                    className="text-xs px-2 py-1 h-7"
+                    title="Clear rollback result"
+                  >
+                    ✕ Clear
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="p-3 max-h-64 overflow-y-auto space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Original Order */}
                   <div className="border rounded p-3">
@@ -981,7 +1274,7 @@ export default function OrderManagementDemo() {
 
                 <div className="border-t pt-3">
                   <h4 className="font-semibold text-sm mb-2">📊 Rollback Summary</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
                     <div className="text-center">
                       <div className="font-semibold text-green-600">{rollbackResult.eventsKept}</div>
                       <div className="text-gray-600">Events Kept</div>
@@ -991,24 +1284,14 @@ export default function OrderManagementDemo() {
                       <div className="text-gray-600">Events Undone</div>
                     </div>
                     <div className="text-center">
-                      <div className="font-semibold text-blue-600">{rollbackResult.rollbackPoint}</div>
+                      <div className="font-semibold text-blue-600 text-xs">{rollbackResult.rollbackPoint}</div>
                       <div className="text-gray-600">Rollback Point</div>
-                    </div>
-                    <div className="text-center">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setRollbackResult(null)}
-                        className="text-xs px-2 py-1"
-                      >
-                        Clear
-                      </Button>
                     </div>
                   </div>
                   {rollbackResult.rollbackEvent && (
                     <div className="mt-2 p-2 bg-purple-50 rounded border-l-2 border-purple-200">
                       <div className="text-xs">
-                        <strong>📝 Rollback Event Created:</strong> Version {rollbackResult.rollbackEvent.version} at {new Date(rollbackResult.rollbackEvent.timestamp).toLocaleString()}
+                        <strong>📝 Rollback Event:</strong> v{rollbackResult.rollbackEvent.version} at {new Date(rollbackResult.rollbackEvent.timestamp).toLocaleTimeString()}
                       </div>
                     </div>
                   )}
@@ -1017,10 +1300,10 @@ export default function OrderManagementDemo() {
                 {rollbackResult.undoneEvents && rollbackResult.undoneEvents.length > 0 && (
                   <div className="border-t pt-3">
                     <h4 className="font-semibold text-sm mb-2">❌ Undone Events</h4>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
                       {rollbackResult.undoneEvents.map((event: any, index: number) => (
                         <div key={index} className="text-xs p-2 bg-red-50 rounded border-l-2 border-red-200">
-                          <strong>{event.type}</strong> (v{event.version}) - {new Date(event.timestamp).toLocaleString()}
+                          <strong>{event.type}</strong> (v{event.version}) - {new Date(event.timestamp).toLocaleTimeString()}
                         </div>
                       ))}
                     </div>
@@ -1030,31 +1313,109 @@ export default function OrderManagementDemo() {
             </Card>
           )}
 
-          {/* Grid layout for All Orders and Order Events */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 flex-1 min-h-0">
+          {/* Grid layout for All Orders and Order Events - Better space allocation */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 flex-1 min-h-0 overflow-hidden">
             {/* All Orders */}
-            <Card className="flex flex-col min-h-0">
+            <Card className="flex flex-col min-h-0 max-h-full">
               <CardHeader className="pb-2 flex-shrink-0">
-                <CardTitle className="text-base">All Orders</CardTitle>
-                <CardDescription className="text-sm">Danh sách tất cả orders</CardDescription>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle className="text-base">All Orders</CardTitle>
+                    <CardDescription className="text-sm">Danh sách tất cả orders</CardDescription>
+                  </div>
+                  {allOrdersPagination.total > 0 && (
+                    <div className="text-xs text-gray-500">
+                      Page {allOrdersPagination.page} of {allOrdersPagination.totalPages} 
+                      <span className="block">({allOrdersPagination.total} orders)</span>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto p-3">
+              <CardContent className="flex-1 p-3 flex flex-col min-h-0">
                 {allOrders.length > 0 ? (
-                  <div className="space-y-2">
-                    {allOrders.map((order) => (
-                      <div key={order.id} className="border rounded p-2">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <div className="font-medium text-sm">{order.id}</div>
-                            <div className="text-xs text-gray-500">{order.customerId}</div>
-                          </div>
-                          <div className="text-right">
-                            <StatusBadge status={order.status} />
-                            <div className="text-sm font-bold">${order.totalAmount}</div>
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
+                      {allOrders.map((order) => (
+                        <div key={order.id} className="border rounded p-2 flex-shrink-0">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <div className="font-medium text-sm">{order.id}</div>
+                              <div className="text-xs text-gray-500">{order.customerId}</div>
+                            </div>
+                            <div className="text-right">
+                              <StatusBadge status={order.status} />
+                              <div className="text-sm font-bold">${order.totalAmount}</div>
+                            </div>
                           </div>
                         </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination Controls for All Orders */}
+                    {allOrdersPagination.totalPages > 1 && (
+                      <div className="mt-3 pt-2 border-t bg-gray-50 rounded p-2 space-y-2 flex-shrink-0">
+                        {/* Previous/Next Row */}
+                        <div className="flex justify-between items-center">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => handlePrevOrdersPage(e)}
+                            disabled={!allOrdersPagination.hasPrev || loading.getAllOrders}
+                            className="text-xs h-6 px-2"
+                          >
+                            {loading.getAllOrders ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            ← Previous
+                          </Button>
+                        
+                        <div className="text-xs text-gray-600 text-center">
+                          <div className="font-medium">Page {allOrdersPagination.page} of {allOrdersPagination.totalPages}</div>
+                        </div>
+                        
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleNextOrdersPage(e)}
+                          disabled={!allOrdersPagination.hasNext || loading.getAllOrders}
+                          className="text-xs h-6 px-2"
+                        >
+                          Next →
+                          {loading.getAllOrders ? <Loader2 className="h-3 w-3 animate-spin ml-1" /> : null}
+                        </Button>
+                        </div>
+
+                        {/* Page Numbers Row */}
+                        <div className="flex justify-center items-center space-x-1">
+                          {getOrdersPageNumbers().map((pageNum, index) => {
+                            if (pageNum === -1) {
+                              // Ellipsis
+                              return (
+                                <span key={`ellipsis-${index}`} className="px-1 py-0.5 text-xs text-gray-400">
+                                  ...
+                                </span>
+                              )
+                            }
+                            
+                            const isCurrentPage = pageNum === allOrdersPagination.page
+                            return (
+                              <Button
+                                key={pageNum}
+                                size="sm"
+                                variant={isCurrentPage ? "default" : "outline"}
+                                onClick={(e) => handleGoToOrdersPage(pageNum, e)}
+                                disabled={loading.getAllOrders || isCurrentPage}
+                                className={`text-xs h-6 w-6 p-0 ${
+                                  isCurrentPage 
+                                    ? "bg-blue-600 text-white hover:bg-blue-700" 
+                                    : "hover:bg-gray-100"
+                                }`}
+                              >
+                                {pageNum}
+                              </Button>
+                            )
+                          })}
+                        </div>
                       </div>
-                    ))}
+                    )}
                   </div>
                 ) : (
                   <div className="text-gray-400 text-center py-4">
@@ -1065,62 +1426,214 @@ export default function OrderManagementDemo() {
             </Card>
 
             {/* Order Events */}
-            <Card className="flex flex-col min-h-0">
+            <Card className="flex flex-col min-h-0 max-h-full">
               <CardHeader className="pb-2 flex-shrink-0">
-                <CardTitle className="text-base">Order Events</CardTitle>
-                <CardDescription className="text-sm">Event history của order</CardDescription>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle className="text-base">Order Events</CardTitle>
+                    <CardDescription className="text-sm">Event history của order</CardDescription>
+                  </div>
+                  {allEventsPagination.total > 0 && allEvents.length > 0 && (
+                    <div className="text-xs text-gray-500">
+                      Page {allEventsPagination.page} of {allEventsPagination.totalPages} 
+                      <span className="block">({allEventsPagination.total} events)</span>
+                    </div>
+                  )}
+                  {orderEventsPagination.total > 0 && orderEvents.length > 0 && (
+                    <div className="text-xs text-gray-500">
+                      Page {orderEventsPagination.page} of {orderEventsPagination.totalPages} 
+                      <span className="block">({orderEventsPagination.total} events)</span>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto p-3">
+              <CardContent className="flex-1 p-3 flex flex-col min-h-0 overflow-hidden">
                 {(orderEvents.length > 0 || allEvents.length > 0) ? (
-                  <div className="space-y-2">
-                    {/* Show specific order events first if they exist */}
-                    {orderEvents.length > 0 && (
-                      <div>
-                        <div className="text-xs font-semibold text-blue-600 mb-2">Specific Order Events:</div>
-                        {orderEvents.map((event, index) => (
-                          <div key={`order-${event.id || index}`} className="border rounded p-2 bg-blue-50">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="font-medium text-sm">{event.type}</div>
-                                <div className="text-xs text-gray-500">V: {event.version}</div>
-                                <div className="text-xs text-blue-600">{event.aggregateId.substring(0, 8)}...</div>
+                  <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                    {/* Show specific order events OR all events, not both */}
+                    {orderEvents.length > 0 ? (
+                      <div className="flex-1 flex flex-col min-h-0">
+                        <div className="text-xs font-semibold text-blue-600 mb-2">
+                          Specific Order Events ({orderEventsPagination.total} total events):
+                        </div>
+                        <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
+                          {orderEvents.map((event, index) => (
+                            <div key={`order-${event.id || index}`} className="border rounded p-2 bg-blue-50 flex-shrink-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <div>
+                                  <div className="font-medium text-xs">{event.type}</div>
+                                  <div className="text-xs text-gray-500">v{event.version} | {event.aggregateId.substring(0, 8)}...</div>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(event.timestamp).toLocaleTimeString()}
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-500">
-                                {new Date(event.timestamp).toLocaleTimeString()}
+                              <div className="text-xs bg-white p-1 rounded font-mono max-h-16 overflow-hidden border">
+                                <div className="line-clamp-3">
+                                  {JSON.stringify(event.data, null, 1)}
+                                </div>
                               </div>
                             </div>
-                            <div className="mt-1 text-xs bg-white p-1 rounded font-mono overflow-auto max-h-16">
-                              {JSON.stringify(event.data, null, 2)}
+                          ))}
+                        </div>
+
+                        {/* Pagination Controls for Order Events */}
+                        {orderEventsPagination.totalPages > 1 && (
+                          <div className="mt-3 pt-2 border-t bg-gray-50 rounded p-2 space-y-2 flex-shrink-0">
+                            {/* Previous/Next Row */}
+                            <div className="flex justify-between items-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => handlePrevOrderEventsPage(e)}
+                                disabled={!orderEventsPagination.hasPrev || loading.getEvents}
+                                className="text-xs h-6 px-2"
+                              >
+                                {loading.getEvents ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                ← Previous
+                              </Button>
+                            
+                            <div className="text-xs text-gray-600 text-center">
+                              <div className="font-medium">Page {orderEventsPagination.page} of {orderEventsPagination.totalPages}</div>
+                            </div>
+                            
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleNextOrderEventsPage(e)}
+                              disabled={!orderEventsPagination.hasNext || loading.getEvents}
+                              className="text-xs h-6 px-2"
+                            >
+                              Next →
+                              {loading.getEvents ? <Loader2 className="h-3 w-3 animate-spin ml-1" /> : null}
+                            </Button>
+                            </div>
+
+                            {/* Page Numbers Row */}
+                            <div className="flex justify-center items-center space-x-1">
+                              {getOrderEventsPageNumbers().map((pageNum, index) => {
+                                if (pageNum === -1) {
+                                  // Ellipsis
+                                  return (
+                                    <span key={`ellipsis-${index}`} className="px-1 py-0.5 text-xs text-gray-400">
+                                      ...
+                                    </span>
+                                  )
+                                }
+                                
+                                const isCurrentPage = pageNum === orderEventsPagination.page
+                                return (
+                                  <Button
+                                    key={pageNum}
+                                    size="sm"
+                                    variant={isCurrentPage ? "default" : "outline"}
+                                    onClick={(e) => handleGoToOrderEventsPage(pageNum, e)}
+                                    disabled={loading.getEvents || isCurrentPage}
+                                    className={`text-xs h-6 w-6 p-0 ${
+                                      isCurrentPage 
+                                        ? "bg-blue-600 text-white hover:bg-blue-700" 
+                                        : "hover:bg-gray-100"
+                                    }`}
+                                  >
+                                    {pageNum}
+                                  </Button>
+                                )
+                              })}
                             </div>
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
-                    
-                    {/* Show all events if they exist */}
-                    {allEvents.length > 0 && (
-                      <div>
-                        {orderEvents.length > 0 && <div className="my-2 border-t"></div>}
+                    ) : allEvents.length > 0 ? (
+                      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                         <div className="text-xs font-semibold text-green-600 mb-2">All System Events:</div>
-                        {allEvents.map((event, index) => (
-                          <div key={`all-${event.id || index}`} className="border rounded p-2 bg-green-50">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="font-medium text-sm">{event.type}</div>
-                                <div className="text-xs text-gray-500">V: {event.version}</div>
-                                <div className="text-xs text-green-600">{event.aggregateId.substring(0, 8)}...</div>
+                        <div className="space-y-2 flex-1 overflow-y-auto min-h-0">
+                          {allEvents.map((event, index) => (
+                            <div key={`all-${event.id || index}`} className="border rounded p-2 bg-green-50 flex-shrink-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <div>
+                                  <div className="font-medium text-xs">{event.type}</div>
+                                  <div className="text-xs text-gray-500">v{event.version} | {event.aggregateId.substring(0, 8)}...</div>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(event.timestamp).toLocaleTimeString()}
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-500">
-                                {new Date(event.timestamp).toLocaleTimeString()}
+                              <div className="text-xs bg-white p-1 rounded font-mono max-h-16 overflow-hidden border">
+                                <div className="line-clamp-3">
+                                  {JSON.stringify(event.data, null, 1)}
+                                </div>
                               </div>
                             </div>
-                            <div className="mt-1 text-xs bg-white p-1 rounded font-mono overflow-auto max-h-16">
-                              {JSON.stringify(event.data, null, 2)}
+                          ))}
+                        </div>
+                        
+                        {/* Pagination Controls for All Events */}
+                        {allEventsPagination.totalPages > 1 && (
+                          <div className="mt-3 pt-2 border-t bg-gray-50 rounded p-2 space-y-2 flex-shrink-0">
+                            {/* Previous/Next Row */}
+                            <div className="flex justify-between items-center">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => handlePrevEventsPage(e)}
+                                  disabled={!allEventsPagination.hasPrev || loading.getAllEvents}
+                                  className="text-xs h-6 px-2"
+                                >
+                                  {loading.getAllEvents ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                                  ← Previous
+                                </Button>
+                              
+                              <div className="text-xs text-gray-600 text-center">
+                                <div className="font-medium">Page {allEventsPagination.page} of {allEventsPagination.totalPages}</div>
+                              </div>
+                              
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => handleNextEventsPage(e)}
+                                disabled={!allEventsPagination.hasNext || loading.getAllEvents}
+                                className="text-xs h-6 px-2"
+                              >
+                                Next →
+                                {loading.getAllEvents ? <Loader2 className="h-3 w-3 animate-spin ml-1" /> : null}
+                              </Button>
+                            </div>
+
+                            {/* Page Numbers Row */}
+                            <div className="flex justify-center items-center space-x-1">
+                              {getPageNumbers().map((pageNum, index) => {
+                                if (pageNum === -1) {
+                                  // Ellipsis
+                                  return (
+                                    <span key={`ellipsis-${index}`} className="px-1 py-0.5 text-xs text-gray-400">
+                                      ...
+                                    </span>
+                                  )
+                                }
+                                
+                                const isCurrentPage = pageNum === allEventsPagination.page
+                                return (
+                                  <Button
+                                    key={pageNum}
+                                    size="sm"
+                                    variant={isCurrentPage ? "default" : "outline"}
+                                    onClick={(e) => handleGoToEventsPage(pageNum, e)}
+                                    disabled={loading.getAllEvents || isCurrentPage}
+                                    className={`text-xs h-6 w-6 p-0 ${
+                                      isCurrentPage 
+                                        ? "bg-blue-600 text-white hover:bg-blue-700" 
+                                        : "hover:bg-gray-100"
+                                    }`}
+                                  >
+                                    {pageNum}
+                                  </Button>
+                                )
+                              })}
                             </div>
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ) : (
                   <div className="text-gray-400 text-center py-4">

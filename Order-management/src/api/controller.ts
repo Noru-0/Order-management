@@ -491,13 +491,35 @@ export class OrderController {
   // Debug methods for demo
   async getAllEvents(req: Request, res: Response): Promise<void> {
     try {
+      // Get pagination parameters
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 4, 20); // Default 4, max 20 items per page
+      const offset = (page - 1) * limit;
+
       const allEvents = await this.eventStore.getAllEvents();
       
+      // Sort events by timestamp (newest first) for better UX
+      const sortedEvents = allEvents.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      // Apply pagination
+      const totalEvents = sortedEvents.length;
+      const paginatedEvents = sortedEvents.slice(offset, offset + limit);
+
       res.json({
         success: true,
         data: {
-          totalEvents: allEvents.length,
-          events: allEvents
+          totalEvents,
+          events: paginatedEvents,
+          pagination: {
+            page,
+            limit,
+            total: totalEvents,
+            totalPages: Math.ceil(totalEvents / limit),
+            hasNext: page * limit < totalEvents,
+            hasPrev: page > 1
+          }
         }
       });
     } catch (error) {

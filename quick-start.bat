@@ -16,9 +16,8 @@ echo.
 echo Choose an option:
 echo 1. Setup project (first time)
 echo 2. Start development servers
-echo 3. Run demo
-echo 4. Setup database only
-echo 5. Exit
+echo 3. Setup database only
+echo 4. Exit
 echo.
 set /p choice="Enter your choice (1-5): "
 
@@ -33,16 +32,11 @@ if "%choice%"=="1" (
     call start-dev.bat
     cd ..
 ) else if "%choice%"=="3" (
-    echo Running demo...
-    cd scripts
-    call demo_script.bat
-    cd ..
-) else if "%choice%"=="4" (
     echo Setting up database...
     cd scripts
     call database-setup.bat
     cd ..
-) else if "%choice%"=="5" (
+) else if "%choice%"=="4" (
     echo Goodbye!
     exit /b 0
 ) else (
