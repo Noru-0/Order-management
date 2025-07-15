@@ -92,6 +92,7 @@ export default function OrderManagementDemo() {
   const [allEvents, setAllEvents] = useState<EventResponse[]>([])
   const [lastResponse, setLastResponse] = useState<string>("")
   const [rollbackResult, setRollbackResult] = useState<any>(null)
+  const [skippedVersionsInfo, setSkippedVersionsInfo] = useState<string>("")
 
   // Helper functions
   const setLoadingState = (key: keyof typeof loading, value: boolean) => {
@@ -179,7 +180,18 @@ export default function OrderManagementDemo() {
     try {
       const response = await orderApi.updateOrderStatus(orderId, { status: newStatus })
       showResponse(response, "Update Status")
-      if (!response.success && response.error) {
+      if (response.success) {
+        // Auto-refresh current order after successful update
+        try {
+          const orderResponse = await orderApi.getOrder(orderId)
+          if (orderResponse.success && orderResponse.data) {
+            setCurrentOrder(orderResponse.data)
+            setCurrentOrderLastUpdated(new Date())
+          }
+        } catch (error) {
+          console.error("Error refreshing order after status update:", error)
+        }
+      } else if (response.error) {
         showError(response.error, "Update Status")
       }
     } catch (error) {
@@ -216,6 +228,17 @@ export default function OrderManagementDemo() {
       showResponse(response, "Add Item")
       if (response.success) {
         setNewItem({ productId: "", productName: "", quantity: 1, price: 0 })
+        
+        // Auto-refresh current order after successful add item
+        try {
+          const orderResponse = await orderApi.getOrder(orderId)
+          if (orderResponse.success && orderResponse.data) {
+            setCurrentOrder(orderResponse.data)
+            setCurrentOrderLastUpdated(new Date())
+          }
+        } catch (error) {
+          console.error("Error refreshing order after add item:", error)
+        }
       } else if (response.error) {
         showError(response.error, "Add Item")
       }
@@ -234,7 +257,18 @@ export default function OrderManagementDemo() {
     try {
       const response = await orderApi.removeOrderItem(orderId, productId)
       showResponse(response, "Remove Item")
-      if (!response.success && response.error) {
+      if (response.success) {
+        // Auto-refresh current order after successful remove item
+        try {
+          const orderResponse = await orderApi.getOrder(orderId)
+          if (orderResponse.success && orderResponse.data) {
+            setCurrentOrder(orderResponse.data)
+            setCurrentOrderLastUpdated(new Date())
+          }
+        } catch (error) {
+          console.error("Error refreshing order after remove item:", error)
+        }
+      } else if (response.error) {
         showError(response.error, "Remove Item")
       }
     } catch (error) {
@@ -606,6 +640,22 @@ export default function OrderManagementDemo() {
       if (response.success && response.data) {
         setRollbackResult(response.data)
         
+        // Fetch and set skipped versions info
+        try {
+          const skippedVersionsResponse = await orderApi.getSkippedVersions(rollbackOrderId)
+          if (skippedVersionsResponse.success && skippedVersionsResponse.data) {
+            if (skippedVersionsResponse.data.length > 0) {
+              const versionsText = skippedVersionsResponse.data.join(', ')
+              setSkippedVersionsInfo(`Skipped versions: ${versionsText}`)
+            } else {
+              setSkippedVersionsInfo("No skipped versions")
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching skipped versions:", error)
+          setSkippedVersionsInfo("Error loading skipped versions")
+        }
+        
         // Clear rollback form after successful rollback
         setRollbackVersion('')
         setRollbackTimestamp('')
@@ -669,6 +719,7 @@ export default function OrderManagementDemo() {
         
       } else {
         setRollbackResult(null)
+        setSkippedVersionsInfo("")
         if (response.error) {
           showError(response.error, "Rollback")
         }
@@ -678,6 +729,7 @@ export default function OrderManagementDemo() {
       const errorMessage = error instanceof Error ? error.message : "Network error"
       showError(errorMessage, "Rollback")
       setRollbackResult(null)
+      setSkippedVersionsInfo("")
     }
     setLoadingState("rollback", false)
   }
@@ -1475,7 +1527,10 @@ export default function OrderManagementDemo() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setRollbackResult(null)}
+                    onClick={() => {
+                      setRollbackResult(null)
+                      setSkippedVersionsInfo("")
+                    }}
                     className="text-xs px-2 py-1 h-7"
                     title="Clear rollback result"
                   >
@@ -1528,6 +1583,13 @@ export default function OrderManagementDemo() {
                     <div className="mt-2 p-2 bg-purple-50 rounded border-l-2 border-purple-200">
                       <div className="text-xs">
                         <strong>📝 Rollback Event:</strong> v{rollbackResult.rollbackEvent.version} at {new Date(rollbackResult.rollbackEvent.timestamp).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  )}
+                  {skippedVersionsInfo && (
+                    <div className="mt-2 p-2 bg-yellow-50 rounded border-l-2 border-yellow-300">
+                      <div className="text-xs">
+                        <strong>⚠️ {skippedVersionsInfo}</strong>
                       </div>
                     </div>
                   )}

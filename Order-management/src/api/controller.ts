@@ -348,7 +348,6 @@ export class OrderController {
             allOrders.push(order);
           }
         } catch (error) {
-          console.warn(`[WARN] Failed to rebuild order ${aggregateId}:`, error);
           // Continue processing other orders instead of failing completely
         }
         processedCount++;
@@ -393,7 +392,7 @@ export class OrderController {
           current.version > latest.version ? current : latest)
       : null;
 
-    // Lọc ra danh sách event cần xử lý (tính đến rollback thực sự)
+    // Lọc ra danh sách event cần xử lý
     let eventsToProcess = sortedEvents;
 
     if (latestRollback) {
@@ -402,19 +401,23 @@ export class OrderController {
 
       if (rollbackData.rollbackType === 'version') {
         const finalVersion = this.resolveNestedRollbackVersion(sortedEvents, rollbackData.rollbackValue);
-        eventsToProcess = nonRollbackEvents.filter(e => e.version <= finalVersion);
-        console.log(`[DEBUG] Rollback to nested version ${finalVersion} (resolved from ${rollbackData.rollbackValue})`);
+        
+        // Lấy events trước rollback point + events sau rollback event
+        const eventsBeforeRollback = nonRollbackEvents.filter(e => e.version <= finalVersion);
+        const eventsAfterRollback = nonRollbackEvents.filter(e => e.version > latestRollback.version);
+        
+        // Combine và sắp xếp lại theo version
+        eventsToProcess = [...eventsBeforeRollback, ...eventsAfterRollback].sort((a, b) => a.version - b.version);
       } else if (rollbackData.rollbackType === 'timestamp') {
         const rollbackDate = new Date(rollbackData.rollbackValue);
-        eventsToProcess = nonRollbackEvents.filter(e =>
-          new Date(e.timestamp) <= rollbackDate
-        );
-        console.log(`[DEBUG] Rollback to timestamp ${rollbackDate.toISOString()}`);
+        
+        // Lấy events trước rollback timestamp + events sau rollback event
+        const eventsBeforeRollback = nonRollbackEvents.filter(e => new Date(e.timestamp) <= rollbackDate);
+        const eventsAfterRollback = nonRollbackEvents.filter(e => e.version > latestRollback.version);
+        
+        // Combine và sắp xếp lại theo version
+        eventsToProcess = [...eventsBeforeRollback, ...eventsAfterRollback].sort((a, b) => a.version - b.version);
       }
-
-      console.log(`[DEBUG] Events to process after rollback:`, eventsToProcess.map(e => `${e.type} v${e.version}`).join(', '));
-    } else {
-      console.log(`[DEBUG] No rollback detected. Processing all ${eventsToProcess.length} events.`);
     }
 
     // Tái dựng trạng thái Order từ các sự kiện
@@ -457,10 +460,6 @@ export class OrderController {
           console.warn(`[WARN] Unrecognized event type: ${event.type}`);
           break;
       }
-    }
-
-    if (!order) {
-      console.warn('[WARN] Order could not be rebuilt – no OrderCreated event present.');
     }
 
     return order;
@@ -823,6 +822,129 @@ export class OrderController {
         itemCount: order.items.length,
         totalAmount: order.totalAmount
       } : null;
+
+      res.json({
+        success: true,
+        data: debugInfo
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Debug failed'
+      });
+    }
+  }
+
+  async getSkippedVersions(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      if (!id || typeof id !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'Order ID is required and must be a string'
+        });
+        return;
+      }
+
+      const events = await this.eventStore.getEvents(id);
+      
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
+      const skippedVersions = this.getSkippedVersionsForOrder(events);
+
+      res.json({
+        success: true,
+        data: skippedVersions
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get skipped versions'
+      });
+    }
+  }
+
+  private getSkippedVersionsForOrder(events: BaseEvent[]): number[] {
+    // Sắp xếp theo version tăng dần
+    const sortedEvents = [...events].sort((a, b) => a.version - b.version);
+    
+    // Tìm tất cả rollback events
+    const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
+    
+    if (rollbackEvents.length === 0) {
+      return []; // Không có rollback, không có version nào bị skip
+    }
+
+    const skippedVersions = new Set<number>();
+    
+    // Với mỗi rollback event, tìm ra các version bị skip
+    for (const rollbackEvent of rollbackEvents) {
+      const rollbackData = rollbackEvent.data;
+      const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
+      
+      if (rollbackData.rollbackType === 'version') {
+        const targetVersion = rollbackData.rollbackValue;
+        
+        // Tìm các events có version > targetVersion và < rollbackEvent.version
+        const skippedEvents = nonRollbackEvents.filter(e => 
+          e.version > targetVersion && e.version < rollbackEvent.version
+        );
+        
+        skippedEvents.forEach(event => skippedVersions.add(event.version));
+      } else if (rollbackData.rollbackType === 'timestamp') {
+        const rollbackDate = new Date(rollbackData.rollbackValue);
+        
+        // Tìm các events có timestamp > rollbackDate và version < rollbackEvent.version
+        const skippedEvents = nonRollbackEvents.filter(e => 
+          new Date(e.timestamp) > rollbackDate && e.version < rollbackEvent.version
+        );
+        
+        skippedEvents.forEach(event => skippedVersions.add(event.version));
+      }
+    }
+    
+    return Array.from(skippedVersions).sort((a, b) => a - b);
+  }
+
+  async debugSkippedVersions(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const events = await this.eventStore.getEvents(id);
+      
+      if (events.length === 0) {
+        res.status(404).json({
+          success: false,
+          error: 'Order not found'
+        });
+        return;
+      }
+
+      const sortedEvents = [...events].sort((a, b) => a.version - b.version);
+      const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
+      const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
+      
+      const debugInfo = {
+        totalEvents: events.length,
+        rollbackEvents: rollbackEvents.map(e => ({
+          version: e.version,
+          rollbackType: e.data.rollbackType,
+          rollbackValue: e.data.rollbackValue,
+          timestamp: e.timestamp
+        })),
+        nonRollbackEvents: nonRollbackEvents.map(e => ({
+          type: e.type,
+          version: e.version,
+          timestamp: e.timestamp
+        })),
+        skippedVersions: this.getSkippedVersionsForOrder(events)
+      };
 
       res.json({
         success: true,

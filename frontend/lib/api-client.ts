@@ -235,6 +235,11 @@ class OrderApiClient {
       body: JSON.stringify(body)
     });
   }
+
+  // Get skipped versions for an order
+  async getSkippedVersions(orderId: string): Promise<ApiResponse<number[]>> {
+    return this.request(`/debug/orders/${orderId}/skipped-versions`);
+  }
 }
 
 export const orderApi = new OrderApiClient();

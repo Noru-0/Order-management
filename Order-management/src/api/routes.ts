@@ -103,5 +103,23 @@ export function createOrderRoutes(orderController: OrderController): express.Rou
     }
   });
 
+  // Get skipped versions for an order
+  router.get('/debug/orders/:id/skipped-versions', async (req, res, next) => {
+    try {
+      await orderController.getSkippedVersions(req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Debug skipped versions endpoint
+  router.get('/debug/orders/:id/skipped-versions-debug', async (req, res, next) => {
+    try {
+      await orderController.debugSkippedVersions(req, res);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
