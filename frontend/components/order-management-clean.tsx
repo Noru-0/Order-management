@@ -30,7 +30,7 @@ export default function OrderManagementDemo() {
   const [newItem, setNewItem] = useState({
     productId: "",
     productName: "",
-    quantity: 1,
+    quantity: 0,
     price: 0
   })
 
@@ -214,20 +214,26 @@ export default function OrderManagementDemo() {
       return
     }
     if (newItem.quantity <= 0) {
-      showError("Quantity phải lớn hơn 0", "Add Item")
+      showError("Vui lòng nhập số lượng lớn hơn 0", "Add Item")
       return
     }
     if (newItem.price <= 0) {
-      showError("Price phải lớn hơn 0", "Add Item")
+      showError("Vui lòng nhập giá lớn hơn 0", "Add Item")
       return
     }
     
     setLoadingState("addItem", true)
     try {
-      const response = await orderApi.addOrderItem(orderId, { item: newItem })
+      // Ensure default values when submitting
+      const itemToAdd = {
+        ...newItem,
+        quantity: newItem.quantity || 1,
+        price: newItem.price || 10.00
+      }
+      const response = await orderApi.addOrderItem(orderId, { item: itemToAdd })
       showResponse(response, "Add Item")
       if (response.success) {
-        setNewItem({ productId: "", productName: "", quantity: 1, price: 0 })
+        setNewItem({ productId: "", productName: "", quantity: 0, price: 0 })
         
         // Auto-refresh current order after successful add item
         try {
@@ -757,11 +763,11 @@ export default function OrderManagementDemo() {
       return
     }
     if (newItem.quantity <= 0) {
-      showError("Quantity phải lớn hơn 0", "Add Item to Form")
+      showError("Vui lòng nhập số lượng lớn hơn 0", "Add Item to Form")
       return
     }
     if (newItem.price <= 0) {
-      showError("Price phải lớn hơn 0", "Add Item to Form")
+      showError("Vui lòng nhập giá lớn hơn 0", "Add Item to Form")
       return
     }
 
@@ -772,11 +778,18 @@ export default function OrderManagementDemo() {
       return
     }
 
+    // Ensure default values when adding to form
+    const itemToAdd = {
+      ...newItem,
+      quantity: newItem.quantity || 1,
+      price: newItem.price || 10.00
+    }
+
     setCreateOrderForm(prev => ({
       ...prev,
-      items: [...prev.items, { ...newItem }]
+      items: [...prev.items, itemToAdd]
     }))
-    setNewItem({ productId: "", productName: "", quantity: 1, price: 0 })
+    setNewItem({ productId: "", productName: "", quantity: 0, price: 0 })
   }
 
   const removeItemFromForm = (index: number) => {
@@ -1119,23 +1132,23 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
               <div>
-                <Label>Customer ID</Label>
+                <Label>Customer ID (unique identifier)</Label>
                 <Input
                   value={createOrderForm.customerId}
                   onChange={(e) => setCreateOrderForm(prev => ({ ...prev, customerId: e.target.value }))}
-                  placeholder="customer-001"
+                  placeholder="e.g. customer-001"
                 />
               </div>
 
               <div>
-                <Label>Items</Label>
+                <Label>Items (products in order)</Label>
                 <div className="space-y-2 mt-2 max-h-32 overflow-y-auto">
                   {createOrderForm.items.map((item, index) => (
                     <div key={index} className="flex items-center gap-2 p-2 border rounded">
                       <div className="flex-1">
                         <div className="text-sm font-medium">{item.productName}</div>
                         <div className="text-xs text-gray-500">
-                          {item.productId} - Qty: {item.quantity} - ${item.price}
+                          {item.productId} - Qty: {item.quantity} units - ${item.price} USD
                         </div>
                       </div>
                       <Button
@@ -1152,25 +1165,29 @@ export default function OrderManagementDemo() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Input
-                    placeholder="Product ID"
+                    placeholder="Product ID (e.g. PROD-001)"
                     value={newItem.productId}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
                   />
                   <Input
-                    placeholder="Product Name"
+                    placeholder="Product Name (e.g. Laptop Dell XPS)"
                     value={newItem.productName}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Quantity"
-                    value={newItem.quantity}
-                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                    placeholder="Quantity (units)"
+                    value={newItem.quantity === 0 ? "" : newItem.quantity}
+                    min="1"
+                    step="1"
+                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Price"
-                    value={newItem.price}
+                    placeholder="Price (USD)"
+                    value={newItem.price === 0 ? "" : newItem.price}
+                    min="0.01"
+                    step="0.01"
                     onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
                   />
                 </div>
@@ -1202,11 +1219,11 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
               <div>
-                <Label className="text-sm">Search Order ID</Label>
+                <Label className="text-sm">Search Order ID (UUID format)</Label>
                 <Input
                   value={searchOrderId}
                   onChange={(e) => setSearchOrderId(e.target.value)}
-                  placeholder="Order ID để tìm kiếm"
+                  placeholder="e.g. 12345678-1234-1234-1234-123456789012"
                 />
               </div>
 
@@ -1322,17 +1339,17 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
               <div>
-                <Label>Order ID</Label>
+                <Label>Order ID (UUID format)</Label>
                 <Input
                   value={orderId}
                   onChange={(e) => setOrderId(e.target.value)}
-                  placeholder="Order ID để thao tác"
+                  placeholder="e.g. 12345678-1234-1234-1234-123456789012"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <Label>Status</Label>
+                  <Label>Status (order state)</Label>
                   <select
                     value={newStatus}
                     onChange={(e) => setNewStatus(e.target.value)}
@@ -1358,32 +1375,34 @@ export default function OrderManagementDemo() {
                 </div>
               </div>
 
-              <Separator />
-
-              <div>
+              <Separator />                <div>
                 <Label>Add New Item</Label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                   <Input
-                    placeholder="Product ID"
+                    placeholder="Product ID (e.g. PROD-001)"
                     value={newItem.productId}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
                   />
                   <Input
-                    placeholder="Product Name"
+                    placeholder="Product Name (e.g. Laptop Dell XPS)"
                     value={newItem.productName}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Quantity"
+                    placeholder="Quantity (units)"
                     value={newItem.quantity}
+                    min="1"
+                    step="1"
                     onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Price"
+                    placeholder="Price (USD)"
                     value={newItem.price}
-                    onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                    min="0.01"
+                    step="0.01"
+                    onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 10.00 }))}
                   />
                 </div>
                 <Button 
@@ -1403,28 +1422,30 @@ export default function OrderManagementDemo() {
                 <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
                 
                 <div>
-                  <Label htmlFor="rollbackOrderId" className="text-sm">Order ID</Label>
+                  <Label htmlFor="rollbackOrderId" className="text-sm">Order ID (UUID format)</Label>
                   <Input
                     id="rollbackOrderId"
                     value={rollbackOrderId}
                     onChange={(e) => setRollbackOrderId(e.target.value)}
-                    placeholder="order-uuid"
+                    placeholder="e.g. 12345678-1234-1234-1234-123456789012"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label htmlFor="rollbackVersion" className="text-sm">Version</Label>
+                    <Label htmlFor="rollbackVersion" className="text-sm">Version (event number)</Label>
                     <Input
                       id="rollbackVersion"
                       type="number"
                       value={rollbackVersion}
                       onChange={(e) => setRollbackVersion(e.target.value)}
-                      placeholder="1,2,3..."
+                      placeholder="e.g. 1, 2, 3..."
+                      min="1"
+                      step="1"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="rollbackTimestamp" className="text-sm">Timestamp</Label>
+                    <Label htmlFor="rollbackTimestamp" className="text-sm">Timestamp (date-time)</Label>
                     <Input
                       id="rollbackTimestamp"
                       type="datetime-local"
@@ -1482,23 +1503,23 @@ export default function OrderManagementDemo() {
               </CardHeader>
               <CardContent className="space-y-3 pt-0">
                 <div>
-                  <Label>Customer ID</Label>
+                  <Label>Customer ID (unique identifier)</Label>
                   <Input
                     value={createOrderForm.customerId}
                     onChange={(e) => setCreateOrderForm(prev => ({ ...prev, customerId: e.target.value }))}
-                    placeholder="customer-001"
+                    placeholder="e.g. customer-001"
                   />
                 </div>
 
                 <div>
-                  <Label>Items</Label>
+                  <Label>Items (products in order)</Label>
                   <div className="space-y-2 mt-2 max-h-24 overflow-y-auto">
                     {createOrderForm.items.map((item, index) => (
                       <div key={index} className="flex items-center gap-2 p-2 border rounded">
                         <div className="flex-1">
                           <div className="text-sm font-medium">{item.productName}</div>
                           <div className="text-xs text-gray-500">
-                            {item.productId} - Qty: {item.quantity} - ${item.price}
+                            {item.productId} - Qty: {item.quantity} units - ${item.price} USD
                           </div>
                         </div>
                         <Button
@@ -1515,25 +1536,25 @@ export default function OrderManagementDemo() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <Input
-                      placeholder="Product ID"
+                      placeholder="Product ID (e.g. PROD-001)"
                       value={newItem.productId}
                       onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
                     />
                     <Input
-                      placeholder="Product Name"
+                      placeholder="Product Name (e.g. Laptop Dell XPS)"
                       value={newItem.productName}
                       onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
                     />
                     <Input
                       type="number"
-                      placeholder="Quantity"
-                      value={newItem.quantity}
-                      onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                      placeholder="Quantity (units)"
+                      value={newItem.quantity === 0 ? "" : newItem.quantity}
+                      onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
                     />
                     <Input
                       type="number"
-                      placeholder="Price"
-                      value={newItem.price}
+                      placeholder="Price (USD)"
+                      value={newItem.price === 0 ? "" : newItem.price}
                       onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
                     />
                   </div>
@@ -1565,11 +1586,11 @@ export default function OrderManagementDemo() {
               </CardHeader>
               <CardContent className="space-y-2 pt-0 overflow-y-auto max-h-96">
                 <div>
-                  <Label className="text-sm">Search Order ID</Label>
+                  <Label className="text-sm">Search Order ID (UUID format)</Label>
                   <Input
                     value={searchOrderId}
                     onChange={(e) => setSearchOrderId(e.target.value)}
-                    placeholder="Order ID để tìm kiếm"
+                    placeholder="e.g. 12345678-1234-1234-1234-123456789012"
                     className="h-8"
                   />
                 </div>
@@ -1619,25 +1640,25 @@ export default function OrderManagementDemo() {
                   <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
                   
                   <div>
-                    <Label htmlFor="rollbackOrderId" className="text-xs">Order ID</Label>
+                    <Label htmlFor="rollbackOrderId" className="text-xs">Order ID (UUID format)</Label>
                     <Input
                       id="rollbackOrderId"
                       value={rollbackOrderId}
                       onChange={(e) => setRollbackOrderId(e.target.value)}
-                      placeholder="order-uuid"
+                      placeholder="e.g. order-123e4567-e89b-12d3-a456-426614174000"
                       className="h-8"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <Label htmlFor="rollbackVersion" className="text-xs">Version</Label>
+                      <Label htmlFor="rollbackVersion" className="text-xs">Version (number)</Label>
                       <Input
                         id="rollbackVersion"
                         type="number"
                         value={rollbackVersion}
                         onChange={(e) => setRollbackVersion(e.target.value)}
-                        placeholder="1,2,3..."
+                        placeholder="e.g. 1, 2, 3..."
                         className="h-8"
                       />
                     </div>
@@ -1761,11 +1782,11 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
               <div>
-                <Label>Customer ID</Label>
+                <Label>Customer ID (unique identifier)</Label>
                 <Input
                   value={createOrderForm.customerId}
                   onChange={(e) => setCreateOrderForm(prev => ({ ...prev, customerId: e.target.value }))}
-                  placeholder="customer-001"
+                  placeholder="e.g. customer-001"
                 />
               </div>
 
@@ -1777,7 +1798,7 @@ export default function OrderManagementDemo() {
                       <div className="flex-1">
                         <div className="text-sm font-medium">{item.productName}</div>
                         <div className="text-xs text-gray-500">
-                          {item.productId} - Qty: {item.quantity} - ${item.price}
+                          {item.productId} - Qty: {item.quantity} units - ${item.price} USD
                         </div>
                       </div>
                       <Button
@@ -1795,14 +1816,14 @@ export default function OrderManagementDemo() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Input
-                      placeholder="Product ID"
+                      placeholder="Product ID (e.g. PROD-001)"
                       value={newItem.productId}
                       onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
                     />
                   </div>
                   <div>
                     <Input
-                      placeholder="Product Name"
+                      placeholder="Product Name (e.g. Laptop Dell XPS)"
                       value={newItem.productName}
                       onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
                     />
@@ -1810,7 +1831,7 @@ export default function OrderManagementDemo() {
                   <div>
                     <Input
                       type="number"
-                      placeholder="Quantity"
+                      placeholder="Quantity (units)"
                       value={newItem.quantity}
                       onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
                     />
@@ -1818,7 +1839,7 @@ export default function OrderManagementDemo() {
                   <div>
                     <Input
                       type="number"
-                      placeholder="Price"
+                      placeholder="Price (USD)"
                       value={newItem.price}
                       onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
                     />
@@ -1849,11 +1870,11 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-3 overflow-y-auto h-full pt-0 max-h-96">
               <div>
-                <Label>Order ID</Label>
+                <Label>Order ID (UUID format)</Label>
                 <Input
                   value={orderId}
                   onChange={(e) => setOrderId(e.target.value)}
-                  placeholder="Order ID để thao tác"
+                  placeholder="e.g. order-123e4567-e89b-12d3-a456-426614174000"
                 />
               </div>
 
@@ -1891,25 +1912,29 @@ export default function OrderManagementDemo() {
                 <Label>Add New Item</Label>
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <Input
-                    placeholder="Product ID"
+                    placeholder="Product ID (e.g. PROD-001)"
                     value={newItem.productId}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
                   />
                   <Input
-                    placeholder="Product Name"
+                    placeholder="Product Name (e.g. Laptop Dell XPS)"
                     value={newItem.productName}
                     onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Quantity"
-                    value={newItem.quantity}
-                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                    placeholder="Quantity (units)"
+                    value={newItem.quantity === 0 ? "" : newItem.quantity}
+                    min="1"
+                    step="1"
+                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
                   />
                   <Input
                     type="number"
-                    placeholder="Price"
-                    value={newItem.price}
+                    placeholder="Price (USD)"
+                    value={newItem.price === 0 ? "" : newItem.price}
+                    min="0.01"
+                    step="0.01"
                     onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
                   />
                 </div>
@@ -1940,11 +1965,11 @@ export default function OrderManagementDemo() {
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
               <div>
-                <Label className="text-xs">Search Order ID</Label>
+                <Label className="text-xs">Search Order ID (UUID format)</Label>
                 <Input
                   value={searchOrderId}
                   onChange={(e) => setSearchOrderId(e.target.value)}
-                  placeholder="Order ID để tìm kiếm"
+                  placeholder="e.g. order-123e4567-e89b-12d3-a456-426614174000"
                   className="h-8"
                 />
               </div>
@@ -2001,30 +2026,30 @@ export default function OrderManagementDemo() {
                 <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
                 
                 <div>
-                  <Label htmlFor="rollbackOrderId" className="text-xs">Order ID</Label>
+                  <Label htmlFor="rollbackOrderId" className="text-xs">Order ID (UUID format)</Label>
                   <Input
                     id="rollbackOrderId"
                     value={rollbackOrderId}
                     onChange={(e) => setRollbackOrderId(e.target.value)}
-                    placeholder="order-uuid"
+                    placeholder="e.g. order-123e4567-e89b-12d3-a456-426614174000"
                     className="h-8"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label htmlFor="rollbackVersion" className="text-xs">Version</Label>
+                    <Label htmlFor="rollbackVersion" className="text-xs">Version (number)</Label>
                     <Input
                       id="rollbackVersion"
                       type="number"
                       value={rollbackVersion}
                       onChange={(e) => setRollbackVersion(e.target.value)}
-                      placeholder="1,2,3..."
+                      placeholder="e.g. 1, 2, 3..."
                       className="h-8"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="rollbackTimestamp" className="text-xs">Timestamp</Label>
+                    <Label htmlFor="rollbackTimestamp" className="text-xs">Timestamp (ISO format)</Label>
                     <Input
                       id="rollbackTimestamp"
                       type="datetime-local"

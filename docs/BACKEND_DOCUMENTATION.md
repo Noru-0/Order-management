@@ -118,844 +118,885 @@ Order-management/
 └── tsconfig.json              # TypeScript configuration
 ```
 
-## 🎯 Core Principles
+## 🎯 Core Principles & Read/Write Mechanisms
 
-### 1. Event Sourcing
-- **Định nghĩa**: Lưu trữ tất cả thay đổi dưới dạng sequence của events thay vì state hiện tại
-- **Lợi ích**: Complete audit trail, time travel, replay capability, debugging ease
+### 1. Event Sourcing - Write Model (Ghi dữ liệu)
 
-### 2. CQRS (Command Query Responsibility Segregation)
-- **Commands**: Thay đổi state (Create, Update, Delete operations)
-- **Queries**: Đọc data (Get operations)
-- **Separation**: Commands và Queries được xử lý riêng biệt
+**Khái niệm cơ bản:**
+- **Định nghĩa**: Thay vì lưu trữ state hiện tại, Event Sourcing lưu trữ tất cả thay đổi dưới dạng sequence of immutable events
+- **Nguyên tắc**: "Events are facts" - Events là những sự kiện đã xảy ra và không thể thay đổi
+- **Write Pattern**: Mọi thay đổi business logic được biểu diễn thành events và append vào event stream
 
-### 3. Domain-Driven Design (DDD)
-- **Aggregate**: Order là aggregate root
-- **Events**: Domain events mô tả business changes
-- **Value Objects**: OrderItem, OrderStatus
-
-## 📦 Chi tiết từng layer
-
-### 1. Entry Point (`src/index.ts`)
-
-**Chức năng chính:**
-- Application bootstrap và configuration
-- Database connection management
-- Middleware setup
-- Graceful shutdown handling
-
-**Key Features:**
+**Cơ chế Write (Ghi dữ liệu):**
 ```typescript
-// Database fallback strategy
-if (usePostgres) {
-  eventStore = new PostgresEventStore(dbConfig);
-  // Falls back to InMemoryEventStore on connection failure
-} else {
-  eventStore = new InMemoryEventStore();
-}
-
-// Dependency injection
-const commandHandlers = new OrderCommandHandlers(eventStore);
-const orderController = new OrderController(commandHandlers, eventStore);
-```
-
-**Environment Variables:**
-- `PORT`: Server port (default: 3001)
-- `DB_HOST`: PostgreSQL host
-- `DB_PORT`: PostgreSQL port (default: 5432)
-- `DB_NAME`: Database name (default: order_management)
-- `DB_USER`: Database user (default: postgres)
-- `DB_PASSWORD`: Database password
-
-### 2. Domain Layer (`src/domain/Order.ts`)
-
-**Order Aggregate:**
-```typescript
-export class Order {
-  public readonly id: string;
-  public readonly customerId: string;
-  public readonly items: OrderItem[];
-  public readonly status: OrderStatus;
-  public readonly totalAmount: number;
-  public readonly createdAt: Date;
-  public readonly updatedAt: Date;
-}
-```
-
-**Business Rules:**
-- Order ID tự động generate bằng UUID
-- Total amount tự động tính từ items
-- Immutable objects (functional approach)
-- Status transitions theo business logic
-
-**Value Objects:**
-```typescript
-export interface OrderItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-  price: number;
-}
-
-export enum OrderStatus {
-  PENDING = 'PENDING',
-  CONFIRMED = 'CONFIRMED',
-  SHIPPED = 'SHIPPED',
-  DELIVERED = 'DELIVERED',
-  CANCELLED = 'CANCELLED'
-}
-```
-
-### 3. Events Layer (`src/events/types.ts`)
-
-**Base Event Interface:**
-```typescript
-export interface BaseEvent {
-  type: string;           // Event type identifier
-  aggregateId: string;    // Order ID (aggregate root)
-  version: number;        // Event version for ordering
-  timestamp: Date;        // When event occurred
-  data: any;             // Event payload
-}
-```
-
-**Domain Events:**
-- `OrderCreatedEvent`: Khi order được tạo
-- `OrderStatusUpdatedEvent`: Khi status thay đổi
-- `OrderItemAddedEvent`: Khi thêm item
-- `OrderItemRemovedEvent`: Khi xóa item
-- `OrderRolledBackEvent`: **[NEW]** Khi thực hiện rollback operation
-
-**Event Data Structure:**
-```typescript
-export interface OrderCreatedEvent extends BaseEvent {
-  type: 'OrderCreated';
-  data: {
-    orderId: string;
-    customerId: string;
-    items: OrderItem[];
-    status: OrderStatus;
-    totalAmount: number;
-  };
-}
-
-// NEW: Rollback Event Structure
-export interface OrderRolledBackEvent extends BaseEvent {
-  type: 'OrderRolledBack';
-  data: {
-    orderId: string;
-    rollbackPoint: string;        // "Version X" or "Timestamp Y"
-    rollbackType: 'version' | 'timestamp';
-    rollbackValue: number | string;
-    eventsUndone: number;        // Số events bị undo
-    previousState: any;          // State trước rollback
-    newState: any;              // State sau rollback
-  };
-}
-```
-
-### 4. Command Layer (`src/commands/handlers.ts`)
-
-**Command Interfaces:**
-```typescript
-export interface CreateOrderCommand {
-  customerId: string;
-  items: OrderItem[];
-}
-
-export interface UpdateOrderStatusCommand {
-  orderId: string;
-  status: OrderStatus;
-}
-```
-
-**Command Handlers:**
-- `handleCreateOrder()`: Tạo order mới
-- `handleUpdateOrderStatus()`: Cập nhật status
-- `handleAddOrderItem()`: Thêm item
-- `handleRemoveOrderItem()`: Xóa item
-
-**Event Publishing Pattern:**
-```typescript
+// WRITE FLOW: State Change → Event Creation → Event Persistence
 async handleCreateOrder(command: CreateOrderCommand): Promise<string> {
+  // 1. Business Logic Validation
   const order = new Order(command.customerId, command.items);
   
+  // 2. Event Creation (Write Operation)
   const event: OrderCreatedEvent = {
     type: 'OrderCreated',
-    aggregateId: order.id,
-    version: 1,
-    timestamp: new Date(),
-    data: { /* order data */ }
+    aggregateId: order.id,      // Entity identifier
+    version: 1,                 // Event sequence number
+    timestamp: new Date(),      // When event occurred
+    data: {                     // Event payload (immutable)
+      orderId: order.id,
+      customerId: order.customerId,
+      items: order.items,
+      status: order.status,
+      totalAmount: order.totalAmount
+    }
   };
 
+  // 3. Event Persistence (Append-only)
   await this.eventStore.saveEvent(event);
+  
+  // 4. Return result (no state storage)
   return order.id;
 }
 ```
 
-### 5. Infrastructure Layer (`src/infrastructure/`)
+**Event Store Write Characteristics:**
+- **Append-Only**: Events chỉ được thêm vào, không update/delete
+- **Immutable**: Event data không bao giờ thay đổi sau khi persist
+- **Ordered**: Events có version number để đảm bảo thứ tự
+- **Atomic**: Mỗi event write là một atomic operation
 
-#### Event Store Interface
+**Write Model Benefits:**
+- **Complete Audit Trail**: Mọi thay đổi đều được ghi lại
+- **Natural Versioning**: Mỗi event có version riêng
+- **Conflict Resolution**: Version-based optimistic concurrency control
+- **Temporal Queries**: Có thể query state tại bất kỳ thời điểm nào
+
+### 2. Event Sourcing - Read Model (Đọc dữ liệu)
+
+**Cơ chế Read (Đọc dữ liệu):**
 ```typescript
-export interface EventStore {
-  saveEvent(event: BaseEvent): Promise<void>;
-  getEvents(aggregateId: string): Promise<BaseEvent[]>;
-  getAllEvents(): Promise<BaseEvent[]>;
+// READ FLOW: Event Retrieval → Event Replay → State Reconstruction
+async getOrder(orderId: string): Promise<Order> {
+  // 1. Event Retrieval (Read from Event Store)
+  const events = await this.eventStore.getEvents(orderId);
+  
+  // 2. Event Filtering & Sorting
+  const validEvents = this.filterValidEvents(events);
+  const sortedEvents = validEvents.sort((a, b) => a.version - b.version);
+  
+  // 3. State Reconstruction (Event Replay)
+  let currentState: Order | null = null;
+  
+  for (const event of sortedEvents) {
+    currentState = this.applyEvent(currentState, event);
+  }
+  
+  // 4. Return reconstructed state
+  return currentState;
+}
+
+// Event Application Logic
+private applyEvent(currentState: Order | null, event: BaseEvent): Order {
+  switch (event.type) {
+    case 'OrderCreated':
+      return new Order(
+        event.data.customerId,
+        event.data.items,
+        event.data.status,
+        event.aggregateId,
+        event.timestamp
+      );
+      
+    case 'OrderStatusUpdated':
+      if (!currentState) throw new Error('Invalid event sequence');
+      return currentState.updateStatus(event.data.newStatus, event.timestamp);
+      
+    case 'OrderItemAdded':
+      if (!currentState) throw new Error('Invalid event sequence');
+      return currentState.addItem(event.data.item, event.timestamp);
+      
+    case 'OrderItemRemoved':
+      if (!currentState) throw new Error('Invalid event sequence');
+      return currentState.removeItem(event.data.productId, event.timestamp);
+      
+    default:
+      return currentState; // Unknown events are ignored
+  }
 }
 ```
 
-#### In-Memory Implementation
-- Development/testing usage
-- Simple array-based storage
-- No persistence across restarts
+**Read Model Characteristics:**
+- **Event Replay**: State được tái tạo bằng cách replay events
+- **Deterministic**: Cùng sequence events luôn tạo ra cùng state
+- **Point-in-Time**: Có thể xem state tại bất kỳ version nào
+- **Eventually Consistent**: Read model có thể lag sau write model
 
-#### PostgreSQL Implementation
-**Features:**
-- Production-ready persistence
-- Database functions for event appending
-- Connection pooling với pg library
-- Transaction support
-- Health checks & statistics
-
-**Database Schema:**
-```sql
-CREATE TABLE events (
-    id SERIAL PRIMARY KEY,
-    aggregate_id VARCHAR(255) NOT NULL,
-    event_type VARCHAR(255) NOT NULL,
-    event_data JSONB NOT NULL,
-    version INTEGER NOT NULL,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE FUNCTION append_event(
-    p_aggregate_id VARCHAR(255),
-    p_event_type VARCHAR(255),
-    p_event_data JSONB,
-    p_expected_version INTEGER DEFAULT NULL
-) RETURNS TABLE(event_id INTEGER, version INTEGER);
+**Read Performance Optimizations:**
+```typescript
+// Snapshot Pattern (Future Enhancement)
+async getOrderWithSnapshot(orderId: string): Promise<Order> {
+  // 1. Load latest snapshot (if exists)
+  const snapshot = await this.snapshotStore.getLatestSnapshot(orderId);
+  
+  // 2. Load events after snapshot
+  const eventsAfterSnapshot = await this.eventStore.getEventsAfterVersion(
+    orderId, 
+    snapshot?.version || 0
+  );
+  
+  // 3. Replay only recent events
+  let state = snapshot?.state || null;
+  for (const event of eventsAfterSnapshot) {
+    state = this.applyEvent(state, event);
+  }
+  
+  return state;
+}
 ```
 
-### 6. API Layer (`src/api/`)
+### 3. CQRS (Command Query Responsibility Segregation)
 
-#### Controller (`controller.ts`)
-**Responsibilities:**
-- Request/Response handling
-- Event sourcing query logic
-- Order reconstruction from events
-- Error handling & response formatting
+**Nguyên tắc cơ bản:**
+- **Separation of Concerns**: Tách biệt hoàn toàn operations đọc và ghi
+- **Different Models**: Write model và read model có thể có structure khác nhau
+- **Optimized for Purpose**: Mỗi model được tối ưu cho use case riêng
 
-**Key Methods:**
-- `createOrder()`: Create new order
-- `getOrder()`: Rebuild order from events
-- `updateOrderStatus()`: Update order status
-- `addOrderItem()`/`removeOrderItem()`: Manage order items
-- `getAllOrders()`: Get all orders (reconstructed)
-- `getAllEvents()`/`getOrderEvents()`: Debug endpoints
-- `getDatabaseStats()`: System statistics
-- `rollbackOrder()`: **[NEW]** Rollback order to specific version/timestamp
-- `debugSkippedVersions()`: **[NEW]** Get skipped versions information
-
-**Enhanced Order Reconstruction with Rollback Support:**
+**Command Side (Write Operations):**
 ```typescript
-private rebuildOrderFromEvents(events: BaseEvent[]): Order {
-  const sortedEvents = [...events].sort((a, b) => a.version - b.version);
-  
-  // Find latest rollback event
-  const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
-  const latestRollback = rollbackEvents.length > 0
-    ? rollbackEvents.reduce((latest, current) =>
-        current.version > latest.version ? current : latest)
-    : null;
+// COMMAND PATTERN - Handles Write Operations
+interface Command {
+  aggregateId: string;
+  version?: number;  // For optimistic concurrency control
+}
 
-  // Process events considering rollback
-  let eventsToProcess = sortedEvents;
-  
-  if (latestRollback) {
-    const rollbackData = latestRollback.data;
-    const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
+interface CreateOrderCommand extends Command {
+  customerId: string;
+  items: OrderItem[];
+}
 
-    if (rollbackData.rollbackType === 'version') {
-      const finalVersion = this.resolveNestedRollbackVersion(sortedEvents, rollbackData.rollbackValue);
-      eventsToProcess = nonRollbackEvents.filter(e => e.version <= finalVersion);
-    } else if (rollbackData.rollbackType === 'timestamp') {
-      const rollbackDate = new Date(rollbackData.rollbackValue);
-      eventsToProcess = nonRollbackEvents.filter(e =>
-        new Date(e.timestamp) <= rollbackDate
+interface UpdateOrderStatusCommand extends Command {
+  status: OrderStatus;
+}
+
+// Command Handler - Business Logic Layer
+class OrderCommandHandlers {
+  constructor(private eventStore: EventStore) {}
+
+  // Write Operation Handler
+  async handleCreateOrder(command: CreateOrderCommand): Promise<void> {
+    // 1. Validation
+    this.validateCreateOrderCommand(command);
+    
+    // 2. Business Logic
+    const order = Order.create(command.customerId, command.items);
+    
+    // 3. Event Generation
+    const event = order.getUncommittedEvents()[0]; // OrderCreatedEvent
+    
+    // 4. Persistence (Write to Event Store)
+    await this.eventStore.saveEvent(event);
+    
+    // 5. Side Effects (if any)
+    await this.publishDomainEvents(order.getUncommittedEvents());
+  }
+
+  async handleUpdateOrderStatus(command: UpdateOrderStatusCommand): Promise<void> {
+    // 1. Load current state (Read for Write)
+    const currentOrder = await this.getOrderFromEvents(command.aggregateId);
+    
+    // 2. Optimistic Concurrency Check
+    if (command.version && currentOrder.version !== command.version) {
+      throw new ConcurrencyError('Order was modified by another process');
+    }
+    
+    // 3. Apply business rule
+    const updatedOrder = currentOrder.updateStatus(command.status);
+    
+    // 4. Generate event
+    const event = updatedOrder.getUncommittedEvents()[0]; // OrderStatusUpdatedEvent
+    
+    // 5. Persist event
+    await this.eventStore.saveEvent(event);
+  }
+}
+```
+
+**Query Side (Read Operations):**
+```typescript
+// QUERY PATTERN - Handles Read Operations  
+interface Query {
+  filters?: any;
+  pagination?: PaginationOptions;
+  projection?: string[];
+}
+
+interface GetOrderQuery extends Query {
+  orderId: string;
+  asOfVersion?: number;    // Point-in-time query
+  asOfTimestamp?: Date;    // Historical query
+}
+
+interface GetOrdersQuery extends Query {
+  customerId?: string;
+  status?: OrderStatus;
+  dateRange?: DateRange;
+}
+
+// Query Handler - Read Optimized
+class OrderQueryHandlers {
+  constructor(
+    private eventStore: EventStore,
+    private readModelStore?: ReadModelStore  // Optional read model
+  ) {}
+
+  // Single Order Query
+  async handleGetOrder(query: GetOrderQuery): Promise<Order> {
+    let events = await this.eventStore.getEvents(query.orderId);
+    
+    // Point-in-time filtering
+    if (query.asOfVersion) {
+      events = events.filter(e => e.version <= query.asOfVersion);
+    }
+    
+    if (query.asOfTimestamp) {
+      events = events.filter(e => e.timestamp <= query.asOfTimestamp);
+    }
+    
+    // State reconstruction
+    return this.rebuildOrderFromEvents(events);
+  }
+
+  // Multiple Orders Query (Eventually Consistent Read Model)
+  async handleGetOrders(query: GetOrdersQuery): Promise<Order[]> {
+    // Option 1: Real-time reconstruction (slow but consistent)
+    if (this.requiresRealTimeConsistency(query)) {
+      const allEvents = await this.eventStore.getAllEvents();
+      const orderEvents = this.groupEventsByAggregate(allEvents);
+      
+      return Promise.all(
+        Object.values(orderEvents).map(events => 
+          this.rebuildOrderFromEvents(events)
+        )
       );
     }
-  }
-  
-  // Apply events to rebuild order state
-  let order: Order | null = null;
-  for (const event of eventsToProcess) {
-    order = applyEvent(order, event);
-  }
-  
-  return order;
-}
-```
-
-**Rollback Protection Logic:**
-```typescript
-// Validate against skipped versions
-private getSkippedVersions(events: BaseEvent[]): number[] {
-  const skippedVersions: number[] = [];
-  const rollbackEvents = events.filter(e => e.type === 'OrderRolledBack');
-  
-  for (const rollbackEvent of rollbackEvents) {
-    const rollbackData = rollbackEvent.data;
     
-    if (rollbackData.rollbackType === 'version') {
-      const rollbackToVersion = rollbackData.rollbackValue;
-      const rollbackFromVersion = rollbackEvent.version - 1;
-      
-      // Mark versions between rollbackTo and rollbackFrom as skipped
-      for (let v = rollbackToVersion + 1; v <= rollbackFromVersion; v++) {
-        if (!skippedVersions.includes(v)) {
-          skippedVersions.push(v);
-        }
-      }
+    // Option 2: Read from optimized read model (fast but eventually consistent)
+    if (this.readModelStore) {
+      return this.readModelStore.queryOrders(query);
     }
+    
+    // Fallback to event reconstruction
+    return this.reconstructOrdersFromEvents(query);
   }
+}
+```
+
+**CQRS Benefits:**
+- **Scalability**: Read và write có thể scale independently
+- **Performance**: Mỗi side được tối ưu cho use case riêng
+- **Flexibility**: Read model có thể denormalized cho performance
+- **Security**: Có thể implement khác nhau access control cho read/write
+
+**CQRS Trade-offs:**
+- **Complexity**: Phải maintain 2 models riêng biệt
+- **Eventually Consistency**: Read model có thể lag
+- **Data Duplication**: Read model có thể duplicate data từ events
+
+### 4. Read/Write Synchronization Patterns
+
+**Write-then-Read Pattern:**
+```typescript
+// Pattern 1: Immediate Read After Write (Strong Consistency)
+async createOrderAndReturn(command: CreateOrderCommand): Promise<Order> {
+  // 1. Write Operation
+  const orderId = await this.commandHandlers.handleCreateOrder(command);
   
-  return skippedVersions.sort((a, b) => a - b);
+  // 2. Immediate Read (from same event store)
+  const order = await this.queryHandlers.handleGetOrder({ orderId });
+  
+  return order; // Guaranteed to include the write
 }
 
-// Validation in rollbackOrder method
-if (toVersion) {
-  const skippedVersions = this.getSkippedVersions(allEvents);
-  if (skippedVersions.includes(toVersion)) {
-    throw new Error(`Cannot rollback to version ${toVersion} - was skipped by previous rollback`);
+// Pattern 2: Async Read Model Update (Eventually Consistent)
+async createOrderAsync(command: CreateOrderCommand): Promise<string> {
+  // 1. Write to Event Store
+  const orderId = await this.commandHandlers.handleCreateOrder(command);
+  
+  // 2. Async Read Model Update (via event subscription)
+  this.eventBus.publish('OrderCreated', { orderId });
+  
+  return orderId; // Read model will be updated asynchronously
+}
+```
+
+**Event-Driven Read Model Updates:**
+```typescript
+// Read Model Projections (Event Handlers)
+class OrderReadModelProjection {
+  constructor(private readModelStore: ReadModelStore) {}
+
+  // Event Handler - Updates Read Model
+  async handleOrderCreated(event: OrderCreatedEvent): Promise<void> {
+    const orderReadModel = {
+      id: event.aggregateId,
+      customerId: event.data.customerId,
+      status: event.data.status,
+      totalAmount: event.data.totalAmount,
+      itemCount: event.data.items.length,
+      createdAt: event.timestamp,
+      updatedAt: event.timestamp
+    };
+
+    await this.readModelStore.insertOrder(orderReadModel);
   }
-}
-```
 
-#### Routes (`routes.ts`)
-**API Endpoints:**
-
-**Order Management:**
-- `POST /api/orders` - Tạo order mới
-- `GET /api/orders/:id` - Lấy order theo ID
-- `GET /api/orders` - Lấy tất cả orders
-- `PUT /api/orders/:id/status` - Cập nhật status
-- `POST /api/orders/:id/items` - Thêm item
-- `DELETE /api/orders/:id/items/:productId` - Xóa item
-
-**Event Sourcing & Rollback (NEW):**
-- `POST /api/debug/orders/:id/rollback` - **[NEW]** Rollback order to version/timestamp
-- `GET /api/debug/orders/:id/skipped-versions` - **[NEW]** Get skipped versions info
-
-**Debug/Development:**
-- `GET /api/debug/events` - Tất cả events trong system
-- `GET /api/debug/orders/:id/events` - Events của order cụ thể
-- `GET /api/debug/orders/:id/rebuild` - Debug order reconstruction
-- `GET /api/debug/stats` - Database statistics
-
-**System:**
-- `GET /health` - Health check endpoint
-
-#### Middleware (`middleware.ts`)
-**Validation Middleware:**
-- `validateCreateOrder()`: Validate order creation
-- `validateUpdateOrderStatus()`: Validate status updates
-- Input sanitization và type checking
-
-**Cross-cutting Concerns:**
-- `corsMiddleware`: CORS handling
-- `requestLogger`: Request logging
-- `errorHandler`: Global error handling
-
-**Error Response Format:**
-```typescript
-{
-  success: false,
-  error: "Error message",
-  details?: ValidationError[]
-}
-```
-
-## 🔄 Data Flow
-
-### 1. Command Flow (Write Operations)
-```
-Client Request → Controller → Command Handler → Domain Logic → Event Store → Response
-```
-
-**Example - Create Order:**
-1. `POST /api/orders` với order data
-2. `OrderController.createOrder()` nhận request
-3. Validate input via middleware
-4. Gọi `OrderCommandHandlers.handleCreateOrder()`
-5. Tạo `Order` domain object
-6. Generate `OrderCreatedEvent`
-7. Lưu event vào `EventStore`
-8. Trả về order ID
-
-### 2. Query Flow (Read Operations)
-```
-Client Request → Controller → Event Store → Event Replay → Domain Reconstruction → Response
-```
-
-**Example - Get Order:**
-1. `GET /api/orders/:id`
-2. `OrderController.getOrder()` nhận request
-3. Load events từ `EventStore.getEvents(id)`
-4. Replay events để rebuild Order state
-5. Trả về current Order state
-
-## 📊 Event Store Operations
-
-### 1. Event Persistence
-**PostgreSQL:**
-- Events stored in `events` table
-- JSONB for flexible event data
-- Atomic operations với transactions
-- Version-based concurrency control
-
-**In-Memory:**
-- Simple array storage
-- Immediate consistency
-- No persistence (development only)
-
-### 2. Event Retrieval
-- **By Aggregate ID**: Get all events for specific order
-- **All Events**: Get entire event log (debugging)
-- **By Type**: Filter events by type
-- **Ordered by**: Timestamp và version
-
-### 3. Event Replay
-```typescript
-const events = await eventStore.getEvents(orderId);
-
-// NEW: Enhanced replay with rollback support
-const sortedEvents = [...events].sort((a, b) => a.version - b.version);
-const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
-const latestRollback = rollbackEvents.length > 0
-  ? rollbackEvents.reduce((latest, current) =>
-      current.version > latest.version ? current : latest)
-  : null;
-
-let eventsToProcess = sortedEvents;
-
-if (latestRollback) {
-  const rollbackData = latestRollback.data;
-  const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
-
-  if (rollbackData.rollbackType === 'version') {
-    eventsToProcess = nonRollbackEvents.filter(e => e.version <= rollbackData.rollbackValue);
-  } else if (rollbackData.rollbackType === 'timestamp') {
-    const rollbackDate = new Date(rollbackData.rollbackValue);
-    eventsToProcess = nonRollbackEvents.filter(e =>
-      new Date(e.timestamp) <= rollbackDate
+  async handleOrderStatusUpdated(event: OrderStatusUpdatedEvent): Promise<void> {
+    await this.readModelStore.updateOrderStatus(
+      event.aggregateId,
+      event.data.newStatus,
+      event.timestamp
     );
   }
 }
-
-let order = null;
-for (const event of eventsToProcess) {
-  order = applyEvent(order, event);
-}
-
-return order; // Current state (after considering rollbacks)
 ```
 
-### 4. Rollback Operations (NEW)
-**Rollback Types:**
-- **Version-based**: Rollback về specific event version
-- **Timestamp-based**: Rollback về specific point in time
+### 5. Consistency Patterns & Transaction Management
 
-**Rollback Metadata:**
+**Event Sourcing Consistency Guarantees:**
 ```typescript
-{
-  rollbackPoint: "Version 4",
-  rollbackType: "version",
-  rollbackValue: 4,
-  eventsUndone: 4,           // v5, v6, v7, v8 bị undo
-  previousState: {           // State trước rollback
-    status: "DELIVERED",
-    totalAmount: 2500,
-    itemCount: 5
-  },
-  newState: {               // State sau rollback
-    status: "CONFIRMED", 
-    totalAmount: 1500,
-    itemCount: 3
+// Strong Consistency within Aggregate Boundary
+class OrderAggregate {
+  // All changes within single aggregate are ACID
+  async processComplexUpdate(command: ComplexOrderUpdateCommand): Promise<void> {
+    // Atomic operation - all events succeed or all fail
+    const events: Event[] = [];
+    
+    // Business logic generates multiple related events
+    if (command.removeItems.length > 0) {
+      events.push(...this.generateRemoveItemEvents(command.removeItems));
+    }
+    
+    if (command.addItems.length > 0) {
+      events.push(...this.generateAddItemEvents(command.addItems));
+    }
+    
+    if (command.newStatus) {
+      events.push(this.generateStatusUpdateEvent(command.newStatus));
+    }
+    
+    // All events saved atomically
+    await this.eventStore.saveEvents(this.id, events, this.version);
   }
 }
 ```
 
-**Skipped Version Tracking:**
+**Cross-Aggregate Consistency (Eventually Consistent):**
 ```typescript
-// Sau khi rollback v8→v4, versions [5,6,7] bị "skip"
-// Không thể rollback về các version này nữa
-function getSkippedVersions(events: BaseEvent[]): number[] {
-  const skippedVersions: number[] = [];
-  const rollbackEvents = events.filter(e => e.type === 'OrderRolledBack');
-  
-  for (const rollback of rollbackEvents) {
-    if (rollback.data.rollbackType === 'version') {
-      const from = rollback.version - 1;  // Version trước rollback
-      const to = rollback.data.rollbackValue;
+// Saga Pattern for Cross-Aggregate Transactions
+class OrderProcessingSaga {
+  async handleOrderCreated(event: OrderCreatedEvent): Promise<void> {
+    try {
+      // Step 1: Reserve inventory
+      await this.inventoryService.reserveItems(event.data.items);
       
-      // Versions từ (to+1) đến from bị skip
-      for (let v = to + 1; v <= from; v++) {
-        if (!skippedVersions.includes(v)) {
-          skippedVersions.push(v);
-        }
-      }
+      // Step 2: Process payment
+      await this.paymentService.processPayment(event.data.totalAmount);
+      
+      // Step 3: Confirm order
+      await this.orderService.confirmOrder(event.aggregateId);
+      
+    } catch (error) {
+      // Compensating actions for rollback
+      await this.compensateOrderCreation(event);
     }
   }
   
-  return skippedVersions.sort();
-}
-```
-
-## 🛡️ Error Handling
-
-### 1. Validation Errors
-- Input validation tại middleware layer
-- Structured error responses
-- Field-level validation messages
-
-### 2. Business Logic Errors
-- Domain rule violations
-- Concurrency conflicts
-- Invalid state transitions
-
-### 3. Infrastructure Errors
-- Database connection issues
-- Event store failures
-- Network timeouts
-
-### 4. Global Error Handling
-```typescript
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({
-    success: false,
-    error: 'Internal server error'
-  });
-});
-```
-
-## 🔧 Configuration & Deployment
-
-### 1. Environment Configuration
-```bash
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=order_management
-DB_USER=postgres
-DB_PASSWORD=password
-
-# Application
-PORT=3001
-NODE_ENV=production
-```
-
-### 2. Database Setup
-```bash
-# Run setup script
-./database/setup.ps1
-
-# Or manual setup
-psql -U postgres -f ./database/schema.sql
-```
-
-### 3. Application Startup
-```bash
-# Development
-npm run dev
-
-# Production
-npm run build
-npm start
-```
-
-## 🎯 Patterns & Best Practices
-
-### 1. Event Sourcing Patterns
-- **Event Store**: Central event persistence
-- **Aggregate Rebuilding**: Replay events to reconstruct state
-- **Event Versioning**: Handle schema evolution
-- **[NEW] Rollback Protection**: Prevent invalid rollback operations
-- **[NEW] Skipped Version Tracking**: Maintain rollback history integrity
-- **Snapshots**: (Future enhancement for performance)
-
-### 2. CQRS Patterns
-- **Command Handlers**: Separate write operations
-- **Query Handlers**: Separate read operations
-- **[NEW] Rollback Commands**: Special operations for time travel
-- **Read Models**: (Future enhancement)
-
-### 3. Rollback Patterns (NEW)
-- **Time Travel**: Navigate to any valid point in event history
-- **Version Protection**: Prevent rollback to invalidated states
-- **Audit Trail**: Complete record of rollback operations
-- **State Snapshots**: Capture before/after rollback states
-
-**Rollback Pattern Example:**
-```typescript
-// Valid rollback scenario
-Events: [v1: Created, v2: Item+, v3: Status+, v4: Item+, v5: Status+]
-Current state: Built from v1-v5
-
-Rollback v5 → v3:
-- Keep: [v1, v2, v3]
-- Skip: [v4, v5] 
-- Create: v6: RolledBack{to: v3, skipped: [4,5]}
-- Result: State from v1-v3, versions 4,5 become invalid
-
-Future rollback attempts to v4 or v5: BLOCKED
-```
-
-### 3. Domain-Driven Design
-- **Aggregates**: Order as aggregate root
-- **Value Objects**: Immutable data structures
-- **Domain Events**: Express business occurrences
-
-### 4. API Design
-- **RESTful endpoints**: Clear resource-based URLs
-- **Consistent responses**: Standardized success/error format
-- **Validation**: Input validation at API boundary
-- **Error handling**: Proper HTTP status codes
-
-## 🚀 Performance Considerations
-
-### 1. Event Store Performance
-- **Indexing**: Aggregate ID và timestamp indexes
-- **Connection Pooling**: Efficient database connections
-- **Batch Operations**: (Future enhancement)
-
-### 2. Query Performance
-- **Event Replay Optimization**: Version-based sorting
-- **Caching**: (Future enhancement for read models)
-- **Pagination**: For large event streams
-
-### 3. Scalability
-- **Horizontal Scaling**: Stateless application design
-- **Event Store Sharding**: (Future enhancement)
-- **Read Replicas**: Database read scaling
-
-## 🔍 Monitoring & Debugging
-
-### 1. Logging
-- Request/response logging
-- Error tracking
-- Event store operations
-- Performance metrics
-
-### 2. Debug Endpoints
-- `/debug/events`: Inspect all events
-- `/debug/orders/:id/events`: Order-specific events
-- `/debug/orders/:id/rebuild`: Debug order reconstruction  
-- `/debug/orders/:id/skipped-versions`: **[NEW]** Rollback analysis
-- `/debug/stats`: System statistics
-- `/health`: Health monitoring
-
-**Enhanced Debug Response Example:**
-```json
-{
-  "success": true,
-  "data": {
-    "orderId": "order-123",
-    "totalEvents": 9,
-    "totalRollbacks": 2,
-    "skippedVersions": [5, 6, 7],
-    "availableVersions": [1, 2, 3, 4, 8, 9],
-    "rollbackHistory": [
-      {
-        "version": 8,
-        "rollbackType": "version", 
-        "rollbackValue": 4,
-        "timestamp": "2025-07-15T10:30:00Z"
-      }
-    ]
+  async compensateOrderCreation(event: OrderCreatedEvent): Promise<void> {
+    // Compensating transactions
+    await this.inventoryService.releaseReservation(event.data.items);
+    await this.orderService.cancelOrder(event.aggregateId, 'Payment failed');
   }
 }
 ```
 
-### 3. Development Tools
-- TypeScript type checking
-- Console logging for development
-- Error stack traces
-- Event inspection utilities
-
-## 🔄 Future Enhancements
-
-### 1. Performance Optimizations
-- **Snapshots**: Periodic state snapshots to avoid full replay
-- **Read Models**: Optimized query databases
-- **Caching Layer**: Redis/Memcached integration
-- **[NEW] Rollback Optimization**: Cache skipped versions calculation
-
-### 2. Advanced Features
-- **Event Versioning**: Schema migration support
-- **Saga Pattern**: Complex workflow orchestration
-- **Event Projections**: Materialized views
-- **[NEW] Advanced Rollback**: Branching/merging rollback operations
-- **[NEW] Rollback Policies**: Configurable rollback restrictions
-
-### 3. Operational Improvements
-- **Metrics**: Prometheus/Grafana monitoring
-- **Tracing**: Distributed tracing
-- **Circuit Breakers**: Resilience patterns
-- **[NEW] Rollback Analytics**: Usage patterns and performance metrics
-
-### 4. Event Sourcing Enhancements (NEW)
-- **Rollback Workflows**: Complex multi-step rollback operations
-- **Version Branching**: Support for parallel timelines
-- **Rollback Permissions**: Role-based rollback access control
-- **Automatic Rollback**: Triggered rollbacks on error conditions
-
-## 📚 Dependencies
-
-### Core Dependencies
-- **express**: Web framework
-- **pg**: PostgreSQL client
-- **uuid**: ID generation
-- **dotenv**: Environment configuration
-
-### Development Dependencies  
-- **typescript**: Type checking
-- **@types/express**: Express types
-- **@types/pg**: PostgreSQL types
-- **@types/uuid**: UUID types
-
-## 🏃‍♂️ Getting Started
-
-1. **Install dependencies**: `npm install`
-2. **Setup database**: Run `./database/setup.ps1`
-3. **Configure environment**: Copy `.env.example` to `.env`
-4. **Start development**: `npm run dev`
-5. **Test API**: Use demo scripts hoặc frontend UI
-
----
-
-## 🎯 Rollback Protection - Technical Deep Dive
-
-### Scenario Analysis
-
-**Initial State:**
-```
-Events: [v1:Created, v2:Item+, v3:Status+, v4:Item+, v5:Status+, v6:Item+, v7:Status+, v8:Item+]
-Current Order: Built from all events (v1-v8)
-```
-
-**Rollback Operation: v8 → v4**
+**Optimistic Concurrency Control:**
 ```typescript
-POST /api/debug/orders/order-123/rollback
-{
-  "toVersion": 4
-}
-
-// Result:
-// - Events kept: [v1, v2, v3, v4]
-// - Events undone: [v5, v6, v7, v8] 
-// - New event: v9:RolledBack{to:v4, undone:[5,6,7,8]}
-// - Skipped versions: [5, 6, 7, 8]
-// - Current state: Rebuilt from [v1, v2, v3, v4]
-```
-
-**Protected Rollback Attempts:**
-```typescript
-// ❌ BLOCKED - Version 6 was skipped
-POST /api/debug/orders/order-123/rollback
-{
-  "toVersion": 6
-}
-// Response: 400 Bad Request
-// "Cannot rollback to version 6 because it was skipped by a previous rollback"
-
-// ✅ ALLOWED - Version 3 is still valid
-POST /api/debug/orders/order-123/rollback  
-{
-  "toVersion": 3
-}
-// Result: Creates v10:RolledBack{to:v3, undone:[4]}
-// Additional skipped version: [4]
-```
-
-### Algorithm Implementation
-
-**Skipped Version Calculation:**
-```typescript
-function getSkippedVersions(events: BaseEvent[]): number[] {
-  const skippedVersions: number[] = [];
-  const rollbackEvents = events.filter(e => e.type === 'OrderRolledBack');
+// Version-based Concurrency Control
+async updateOrderWithConcurrencyCheck(
+  orderId: string,
+  command: UpdateOrderCommand,
+  expectedVersion: number
+): Promise<void> {
   
-  for (const rollbackEvent of rollbackEvents) {
-    const rollbackData = rollbackEvent.data;
+  try {
+    // Load current state
+    const currentOrder = await this.getOrder(orderId);
     
-    if (rollbackData.rollbackType === 'version') {
-      const rollbackToVersion = rollbackData.rollbackValue;      // Target version
-      const rollbackFromVersion = rollbackEvent.version - 1;     // Version before rollback
+    // Check version
+    if (currentOrder.version !== expectedVersion) {
+      throw new ConcurrencyError(
+        `Order was modified. Expected version: ${expectedVersion}, ` +
+        `Current version: ${currentOrder.version}`
+      );
+    }
+    
+    // Apply command
+    const events = currentOrder.applyCommand(command);
+    
+    // Save with version check
+    await this.eventStore.saveEvents(orderId, events, expectedVersion);
+    
+  } catch (error) {
+    if (error instanceof ConcurrencyError) {
+      // Retry strategy
+      await this.retryWithBackoff(orderId, command);
+    }
+    throw error;
+  }
+}
+
+// Retry Strategy for Concurrency Conflicts
+async retryWithBackoff(
+  orderId: string, 
+  command: UpdateOrderCommand,
+  maxRetries: number = 3
+): Promise<void> {
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Get fresh state
+      const order = await this.getOrder(orderId);
       
-      // All versions between target and source (exclusive) are skipped
-      for (let v = rollbackToVersion + 1; v <= rollbackFromVersion; v++) {
-        if (!skippedVersions.includes(v)) {
-          skippedVersions.push(v);
-        }
-      }
-    } else if (rollbackData.rollbackType === 'timestamp') {
-      // For timestamp rollbacks, calculate equivalent version range
-      const rollbackTimestamp = new Date(rollbackData.rollbackValue);
-      const rollbackFromVersion = rollbackEvent.version - 1;
-      
-      const eventsBeforeTimestamp = events.filter(e => 
-        e.type !== 'OrderRolledBack' && 
-        new Date(e.timestamp) <= rollbackTimestamp
+      // Retry command with current version
+      await this.updateOrderWithConcurrencyCheck(
+        orderId, 
+        command, 
+        order.version
       );
       
-      const highestValidVersion = eventsBeforeTimestamp.length > 0 
-        ? Math.max(...eventsBeforeTimestamp.map(e => e.version))
-        : 0;
+      return; // Success
       
-      for (let v = highestValidVersion + 1; v <= rollbackFromVersion; v++) {
-        if (!skippedVersions.includes(v)) {
-          skippedVersions.push(v);
-        }
+    } catch (error) {
+      if (error instanceof ConcurrencyError && attempt < maxRetries) {
+        // Exponential backoff
+        await this.delay(Math.pow(2, attempt) * 100);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+```
+
+### 6. Error Handling & Recovery Patterns
+
+**Command Validation & Business Rule Enforcement:**
+```typescript
+// Multi-level Validation Strategy
+class OrderCommandValidator {
+  async validateCreateOrder(command: CreateOrderCommand): Promise<void> {
+    // 1. Input Validation (Syntax)
+    if (!command.customerId || command.customerId.trim() === '') {
+      throw new ValidationError('Customer ID is required');
+    }
+    
+    if (!command.items || command.items.length === 0) {
+      throw new ValidationError('Order must contain at least one item');
+    }
+    
+    // 2. Business Rule Validation (Semantics)
+    const customer = await this.customerService.getCustomer(command.customerId);
+    if (!customer.isActive) {
+      throw new BusinessRuleError('Cannot create order for inactive customer');
+    }
+    
+    // 3. Cross-Aggregate Validation (Eventually Consistent)
+    for (const item of command.items) {
+      const product = await this.productService.getProduct(item.productId);
+      if (!product.isAvailable) {
+        throw new BusinessRuleError(`Product ${item.productId} is not available`);
+      }
+      
+      if (item.quantity > product.stockLevel) {
+        throw new BusinessRuleError(
+          `Insufficient stock for ${item.productId}. ` +
+          `Requested: ${item.quantity}, Available: ${product.stockLevel}`
+        );
       }
     }
   }
-  
-  return skippedVersions.sort((a, b) => a - b);
 }
 ```
 
-**Nested Rollback Resolution:**
+**Event Store Error Handling:**
 ```typescript
-function resolveNestedRollbackVersion(events: BaseEvent[], rollbackVersion: number): number {
-  const versionMap = new Map(events.map(e => [e.version, e]));
-  let currentVersion = rollbackVersion;
-
-  // Follow rollback chain to find final target
-  while (true) {
-    const event = versionMap.get(currentVersion);
-    if (!event || event.type !== 'OrderRolledBack') {
-      break;
+// Robust Event Persistence with Error Recovery
+class ResilientEventStore {
+  async saveEvents(
+    aggregateId: string, 
+    events: Event[], 
+    expectedVersion: number
+  ): Promise<void> {
+    
+    const maxRetries = 3;
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.attemptSaveEvents(aggregateId, events, expectedVersion);
+        return; // Success
+        
+      } catch (error) {
+        lastError = error;
+        
+        if (error instanceof ConcurrencyError) {
+          // Don't retry concurrency errors
+          throw error;
+        }
+        
+        if (error instanceof ConnectionError && attempt < maxRetries) {
+          // Wait and retry for connection issues
+          await this.waitWithJitter(attempt * 1000);
+          continue;
+        }
+        
+        if (error instanceof TransactionError && attempt < maxRetries) {
+          // Retry transaction errors
+          await this.waitWithJitter(attempt * 500);
+          continue;
+        }
+        
+        // Non-retryable error
+        throw error;
+      }
     }
-
-    const nestedRollbackValue = event.data.rollbackValue;
-    if (typeof nestedRollbackValue === 'number') {
-      currentVersion = nestedRollbackValue;
-    } else {
-      break;
+    
+    throw new EventStoreError(
+      `Failed to save events after ${maxRetries} attempts`, 
+      lastError
+    );
+  }
+  
+  private async attemptSaveEvents(
+    aggregateId: string, 
+    events: Event[], 
+    expectedVersion: number
+  ): Promise<void> {
+    
+    const connection = await this.getConnection();
+    
+    try {
+      await connection.query('BEGIN');
+      
+      // Verify expected version
+      const currentVersion = await this.getCurrentVersion(connection, aggregateId);
+      if (currentVersion !== expectedVersion) {
+        throw new ConcurrencyError(
+          `Version mismatch. Expected: ${expectedVersion}, Current: ${currentVersion}`
+        );
+      }
+      
+      // Insert events atomically
+      for (const event of events) {
+        await this.insertEvent(connection, event);
+      }
+      
+      await connection.query('COMMIT');
+      
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      
+      // Classify error types
+      if (error.constraint === 'unique_violation') {
+        throw new ConcurrencyError('Duplicate event version detected');
+      }
+      
+      if (error.code === 'ECONNRESET') {
+        throw new ConnectionError('Database connection lost');
+      }
+      
+      throw new TransactionError('Event save transaction failed', error);
+      
+    } finally {
+      connection.release();
     }
   }
-
-  return currentVersion;
 }
 ```
 
-### Data Integrity Guarantees
+**Event Replay Error Handling:**
+```typescript
+// Resilient Event Replay with Error Recovery
+class ResilientEventReplayer {
+  async rebuildOrderFromEvents(events: Event[]): Promise<Order> {
+    let currentState: Order | null = null;
+    let processedEvents = 0;
+    
+    try {
+      for (const event of events) {
+        try {
+          currentState = await this.applyEvent(currentState, event);
+          processedEvents++;
+          
+        } catch (eventError) {
+          // Event-specific error handling
+          if (eventError instanceof UnknownEventTypeError) {
+            // Skip unknown events (forward compatibility)
+            console.warn(`Skipping unknown event type: ${event.type}`, event);
+            continue;
+          }
+          
+          if (eventError instanceof InvalidEventDataError) {
+            // Attempt data migration
+            const migratedEvent = await this.migrateEventData(event);
+            currentState = await this.applyEvent(currentState, migratedEvent);
+            processedEvents++;
+            continue;
+          }
+          
+          // Wrap and re-throw with context
+          throw new EventReplayError(
+            `Failed to apply event ${event.type} (version ${event.version})`,
+            eventError,
+            { processedEvents, event }
+          );
+        }
+      }
+      
+      if (!currentState) {
+        throw new EmptyEventStreamError(
+          `No valid events found for reconstruction. Total events: ${events.length}`
+        );
+      }
+      
+      return currentState;
+      
+    } catch (error) {
+      // Add reconstruction context
+      throw new StateReconstructionError(
+        `Failed to reconstruct order state. Processed ${processedEvents}/${events.length} events`,
+        error
+      );
+    }
+  }
+  
+  // Event Data Migration for Schema Evolution
+  private async migrateEventData(event: Event): Promise<Event> {
+    // Example: Migrate old OrderCreated events to new schema
+    if (event.type === 'OrderCreated' && !event.data.version) {
+      return {
+        ...event,
+        data: {
+          ...event.data,
+          version: '1.0', // Add missing version field
+          totalAmount: this.calculateTotalFromItems(event.data.items)
+        }
+      };
+    }
+    
+    return event;
+  }
+}
+```
 
-1. **Immutability**: Original events never modified, rollback creates new events
-2. **Auditability**: Complete rollback history preserved in event stream  
-3. **Consistency**: Skipped versions consistently blocked across all operations
-4. **Determinism**: Same event sequence always produces same result
-5. **Reversibility**: Rollback operations themselves can be rolled back
+**API Error Responses:**
+```typescript
+// Standardized Error Response Format
+class ErrorResponseHandler {
+  handleError(error: Error, req: Request, res: Response): void {
+    const errorResponse = this.formatError(error);
+    
+    // Log error with context
+    this.logger.error('API Error', {
+      error: error.message,
+      stack: error.stack,
+      requestId: req.id,
+      endpoint: `${req.method} ${req.path}`,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(errorResponse.statusCode).json(errorResponse);
+  }
+  
+  private formatError(error: Error): ErrorResponse {
+    // Business/Validation Errors
+    if (error instanceof ValidationError) {
+      return {
+        success: false,
+        error: 'Validation Error',
+        message: error.message,
+        details: error.validationErrors,
+        statusCode: 400,
+        errorCode: 'VALIDATION_ERROR'
+      };
+    }
+    
+    if (error instanceof BusinessRuleError) {
+      return {
+        success: false,
+        error: 'Business Rule Violation',
+        message: error.message,
+        statusCode: 422,
+        errorCode: 'BUSINESS_RULE_ERROR'
+      };
+    }
+    
+    // Concurrency Errors
+    if (error instanceof ConcurrencyError) {
+      return {
+        success: false,
+        error: 'Concurrency Conflict',
+        message: 'The resource was modified by another process. Please refresh and try again.',
+        statusCode: 409,
+        errorCode: 'CONCURRENCY_ERROR',
+        retryable: true
+      };
+    }
+    
+    // Infrastructure Errors
+    if (error instanceof EventStoreError) {
+      return {
+        success: false,
+        error: 'Event Store Error',
+        message: 'Unable to persist changes. Please try again.',
+        statusCode: 503,
+        errorCode: 'EVENT_STORE_ERROR',
+        retryable: true
+      };
+    }
+    
+    // Default Internal Server Error
+    return {
+      success: false,
+      error: 'Internal Server Error',
+      message: 'An unexpected error occurred. Please try again later.',
+      statusCode: 500,
+      errorCode: 'INTERNAL_ERROR',
+      retryable: true
+    };
+  }
+}
+```
 
-*Hệ thống này demonstrate các best practices của Event Sourcing và CQRS architecture với enhanced rollback protection, cung cấp foundation vững chắc cho việc mở rộng và maintenance trong các enterprise applications.*
+### 7. Performance Optimization Patterns
+
+**Event Caching Strategy:**
+```typescript
+// Multi-Level Caching for Event Retrieval
+class CachedEventStore {
+  constructor(
+    private eventStore: EventStore,
+    private l1Cache: MemoryCache,     // Fast in-memory cache
+    private l2Cache: RedisCache       // Distributed cache
+  ) {}
+  
+  async getEvents(aggregateId: string): Promise<Event[]> {
+    // L1 Cache Check (Memory)
+    const l1CacheKey = `events:${aggregateId}`;
+    let events = await this.l1Cache.get(l1CacheKey);
+    
+    if (events) {
+      this.metrics.incrementCounter('cache.l1.hit');
+      return events;
+    }
+    
+    // L2 Cache Check (Redis)
+    const l2CacheKey = `events:${aggregateId}:v2`;
+    events = await this.l2Cache.get(l2CacheKey);
+    
+    if (events) {
+      this.metrics.incrementCounter('cache.l2.hit');
+      // Populate L1 cache
+      await this.l1Cache.set(l1CacheKey, events, { ttl: 300 }); // 5 min
+      return events;
+    }
+    
+    // Cache Miss - Load from Event Store
+    this.metrics.incrementCounter('cache.miss');
+    events = await this.eventStore.getEvents(aggregateId);
+    
+    // Populate both cache levels
+    await Promise.all([
+      this.l1Cache.set(l1CacheKey, events, { ttl: 300 }),
+      this.l2Cache.set(l2CacheKey, events, { ttl: 3600 }) // 1 hour
+    ]);
+    
+    return events;
+  }
+  
+  // Cache Invalidation on Writes
+  async saveEvents(aggregateId: string, events: Event[], expectedVersion: number): Promise<void> {
+    // Save to store
+    await this.eventStore.saveEvents(aggregateId, events, expectedVersion);
+    
+    // Invalidate caches
+    await Promise.all([
+      this.l1Cache.delete(`events:${aggregateId}`),
+      this.l2Cache.delete(`events:${aggregateId}:v2`)
+    ]);
+  }
+}
+```
+
+**Snapshot Pattern Implementation:**
+```typescript
+// Snapshot Store for Performance Optimization
+class SnapshotStore {
+  async saveSnapshot(aggregateId: string, snapshot: AggregateSnapshot): Promise<void> {
+    await this.repository.upsert({
+      aggregateId,
+      version: snapshot.version,
+      data: JSON.stringify(snapshot.state),
+      timestamp: new Date()
+    });
+  }
+  
+  async getLatestSnapshot(aggregateId: string): Promise<AggregateSnapshot | null> {
+    const record = await this.repository.findOne({
+      where: { aggregateId },
+      orderBy: { version: 'DESC' }
+    });
+    
+    if (!record) return null;
+    
+    return {
+      aggregateId,
+      version: record.version,
+      state: JSON.parse(record.data),
+      timestamp: record.timestamp
+    };
+  }
+}
+
+// Snapshot-Optimized Order Reconstruction
+class OptimizedOrderQueryHandler {
+  async getOrder(orderId: string): Promise<Order> {
+    // 1. Load latest snapshot
+    const snapshot = await this.snapshotStore.getLatestSnapshot(orderId);
+    
+    // 2. Load events after snapshot
+    const eventsAfterSnapshot = await this.eventStore.getEventsAfterVersion(
+      orderId,
+      snapshot?.version || 0
+    );
+    
+    // 3. Reconstruct from snapshot + recent events
+    let order = snapshot ? Order.fromSnapshot(snapshot.state) : null;
+    
+    for (const event of eventsAfterSnapshot) {
+      order = await this.applyEvent(order, event);
+    }
+    
+    // 4. Create new snapshot if many events processed
+    if (eventsAfterSnapshot.length > 50) {
+      await this.snapshotStore.saveSnapshot(orderId, {
+        aggregateId: orderId,
+        version: order.version,
+        state: order.toSnapshot(),
+        timestamp: new Date()
+      });
+    }
+    
+    return order;
+  }
+}
+```
