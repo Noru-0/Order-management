@@ -1,14 +1,19 @@
 import { Request, Response } from 'express';
 import { OrderCommandHandlers } from '../commands/handlers';
 import { EventStore } from '../infrastructure/event-store';
+import { OrderRebuilderService } from '../services/order-rebuilder';
 import { Order, OrderStatus } from '../domain/Order';
 import { BaseEvent, OrderRolledBackEvent } from '../events/types';
 
 export class OrderController {
+  private orderRebuilder: OrderRebuilderService;
+
   constructor(
     private commandHandlers: OrderCommandHandlers,
     private eventStore: EventStore
-  ) {}
+  ) {
+    this.orderRebuilder = new OrderRebuilderService();
+  }
 
   async createOrder(req: Request, res: Response): Promise<void> {
     try {
@@ -97,7 +102,7 @@ export class OrderController {
         return;
       }
 
-      const order = this.rebuildOrderFromEvents(events);
+      const order = this.orderRebuilder.rebuildOrderFromEvents(events);
       
       if (!order) {
         res.status(500).json({
@@ -284,7 +289,7 @@ export class OrderController {
       }
 
       // Check if product exists in order
-      const order = this.rebuildOrderFromEvents(events);
+      const order = this.orderRebuilder.rebuildOrderFromEvents(events);
       if (!order) {
         res.status(400).json({
           success: false,
@@ -343,7 +348,7 @@ export class OrderController {
       
       for (const [aggregateId, events] of orderMap) {
         try {
-          const order = this.rebuildOrderFromEvents(events);
+          const order = this.orderRebuilder.rebuildOrderFromEvents(events);
           if (order) {
             allOrders.push(order);
           }
@@ -377,114 +382,6 @@ export class OrderController {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
-  }
-
-  private rebuildOrderFromEvents(events: BaseEvent[]): Order | null {
-    if (events.length === 0) return null;
-
-    // Sắp xếp theo version tăng dần
-    const sortedEvents = [...events].sort((a, b) => a.version - b.version);
-
-    // Tìm rollback mới nhất (nếu có)
-    const rollbackEvents = sortedEvents.filter(e => e.type === 'OrderRolledBack');
-    const latestRollback = rollbackEvents.length > 0
-      ? rollbackEvents.reduce((latest, current) =>
-          current.version > latest.version ? current : latest)
-      : null;
-
-    // Lọc ra danh sách event cần xử lý
-    let eventsToProcess = sortedEvents;
-
-    if (latestRollback) {
-      const rollbackData = latestRollback.data;
-      const nonRollbackEvents = sortedEvents.filter(e => e.type !== 'OrderRolledBack');
-
-      if (rollbackData.rollbackType === 'version') {
-        const finalVersion = this.resolveNestedRollbackVersion(sortedEvents, rollbackData.rollbackValue);
-        
-        // Lấy events trước rollback point + events sau rollback event
-        const eventsBeforeRollback = nonRollbackEvents.filter(e => e.version <= finalVersion);
-        const eventsAfterRollback = nonRollbackEvents.filter(e => e.version > latestRollback.version);
-        
-        // Combine và sắp xếp lại theo version
-        eventsToProcess = [...eventsBeforeRollback, ...eventsAfterRollback].sort((a, b) => a.version - b.version);
-      } else if (rollbackData.rollbackType === 'timestamp') {
-        const rollbackDate = new Date(rollbackData.rollbackValue);
-        
-        // Lấy events trước rollback timestamp + events sau rollback event
-        const eventsBeforeRollback = nonRollbackEvents.filter(e => new Date(e.timestamp) <= rollbackDate);
-        const eventsAfterRollback = nonRollbackEvents.filter(e => e.version > latestRollback.version);
-        
-        // Combine và sắp xếp lại theo version
-        eventsToProcess = [...eventsBeforeRollback, ...eventsAfterRollback].sort((a, b) => a.version - b.version);
-      }
-    }
-
-    // Tái dựng trạng thái Order từ các sự kiện
-    let order: Order | null = null;
-
-    for (const event of eventsToProcess) {
-      switch (event.type) {
-        case 'OrderCreated':
-          order = new Order(
-            event.data.customerId,
-            event.data.items,
-            event.data.status,
-            event.data.orderId
-          );
-          break;
-
-        case 'OrderStatusUpdated':
-          if (order) {
-            order = order.updateStatus(event.data.newStatus);
-          }
-          break;
-
-        case 'OrderItemAdded':
-          if (order) {
-            order = order.addItem(event.data.item);
-          }
-          break;
-
-        case 'OrderItemRemoved':
-          if (order) {
-            order = order.removeItem(event.data.productId);
-          }
-          break;
-
-        case 'OrderRolledBack':
-          // đã xử lý ở trên, bỏ qua tại đây
-          break;
-
-        default:
-          console.warn(`[WARN] Unrecognized event type: ${event.type}`);
-          break;
-      }
-    }
-
-    return order;
-  }
-
-  private resolveNestedRollbackVersion(events: BaseEvent[], rollbackVersion: number): number {
-    const versionMap = new Map(events.map(e => [e.version, e]));
-
-    let currentVersion = rollbackVersion;
-
-    while (true) {
-      const event = versionMap.get(currentVersion);
-      if (!event || event.type !== 'OrderRolledBack') {
-        break;
-      }
-
-      const nestedRollbackValue = event.data.rollbackValue;
-      if (typeof nestedRollbackValue === 'number') {
-        currentVersion = nestedRollbackValue;
-      } else {
-        break;
-      }
-    }
-
-    return currentVersion;
   }
 
   // Debug methods for demo
@@ -672,7 +569,7 @@ export class OrderController {
       }
 
       // Store the original state before rollback
-      const originalOrder = this.rebuildOrderFromEvents(allEvents);
+      const originalOrder = this.orderRebuilder.rebuildOrderFromEvents(allEvents);
       
       if (!originalOrder) {
         res.status(400).json({
@@ -719,7 +616,7 @@ export class OrderController {
       }
 
       // Rebuild order state from filtered events
-      const rolledBackOrder = this.rebuildOrderFromEvents(eventsToKeep);
+      const rolledBackOrder = this.orderRebuilder.rebuildOrderFromEvents(eventsToKeep);
       
       if (!rolledBackOrder) {
         res.status(400).json({
@@ -815,7 +712,7 @@ export class OrderController {
       };
 
       // Test rebuild with detailed logging
-      const order = this.rebuildOrderFromEvents(events);
+      const order = this.orderRebuilder.rebuildOrderFromEvents(events);
       debugInfo.rebuildResult = order ? {
         id: order.id,
         status: order.status,
