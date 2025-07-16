@@ -1,8 +1,40 @@
-# Backend Architecture Documentation - Event Sourcing Order Management System
+# Backend Architecture Documentation - Clean Architecture + DDD + CQRS + Event Sourcing
 
 ## 📋 Tổng quan hệ thống
 
-Hệ thống Order Management được xây dựng theo kiến trúc **Event Sourcing** và **CQRS (Command Query Responsibility Segregation)**, sử dụng Node.js với TypeScript và Express.js framework. Hệ thống bao gồm tính năng **Rollback Protection** tiên tiến để đảm bảo tính toàn vẹn dữ liệu trong Event Sourcing.
+Hệ thống Order Management được xây dựng theo kiến trúc **Clean Architecture** kết hợp với **Domain-Driven Design (DDD)**, **CQRS (Command Query Responsibility Segregation)**, và **Event Sourcing**. Hệ thống được phát triển với Node.js, TypeScript và Express.js, tuân theo các nguyên tắc SOLID và Dependency Inversion.
+
+## 🏗️ Clean Architecture Layers
+
+### 1. Domain Layer (🏢 Lớp nghiệp vụ cốt lõi)
+- **Entities & Aggregates**: Order.ts - Aggregate Root chứa business logic
+- **Domain Events**: Định nghĩa các sự kiện nghiệp vụ
+- **Repository Interfaces**: Abstractions cho data access (DIP)
+- **Domain Services**: Business logic không thuộc về entity cụ thể
+- **Value Objects**: Immutable objects đại diện cho concepts
+
+### 2. Application Layer (🎯 Lớp use cases)
+- **Command Handlers**: Xử lý write operations (CQRS)
+- **Query Handlers**: Xử lý read operations (CQRS)
+- **DTOs**: Data Transfer Objects cho commands và queries
+- **Use Cases**: Orchestrate domain objects và infrastructure services
+
+### 3. Infrastructure Layer (🔧 Lớp technical concerns)
+- **Event Stores**: InMemoryEventStore, PostgreSQLEventStore
+- **Database Access**: Repository implementations
+- **External Services**: Third-party integrations
+- **Configuration**: Environment và dependency setup
+
+### 4. Interface Layer (📱 Lớp presentation)
+- **Controllers**: OrderCommandController, OrderQueryController
+- **Routes**: API endpoint definitions
+- **DTOs**: Request/Response models
+- **Middleware**: Authentication, validation, error handling
+
+### 5. Bootstrap Layer (🚀 Composition Root)
+- **DI Container**: Dependency injection setup
+- **Application**: App bootstrap và startup
+- **Configuration**: Environment-specific setup
 
 ### 3. Query Flow (Read Operations)
 ```
@@ -10,32 +42,7 @@ Client Request → Controller → Event Store → Event Replay → Domain Recons
 ```
 
 **Example - Get Order:**
-1. `GET /api/### 3. Business Logic Errors
-- Domain rule violations
-- Concurrency conflicts
-- Invalid state transitions
-- **[NEW] Rollback validation errors**: Attempt to rollback to skipped version
-
-### 4. Rollback-Specific Errors (NEW)
-```typescript
-// Rollback validation error example
-{
-  success: false,
-  error: "Cannot rollback to version 6 because it was skipped by a previous rollback. Skipped versions: 5, 6, 7"
-}
-
-// Invalid rollback target
-{
-  success: false,
-  error: "No events found for the specified rollback point"
-}
-
-// Missing rollback parameters
-{
-  success: false,
-  error: "Either toVersion or toTimestamp must be provided"
-}
-```rs/:id`
+1. `GET /api/orders/:id`
 2. `OrderController.getOrder()` nhận request
 3. Load events từ `EventStore.getEvents(id)`
 4. **[NEW]** Check for rollback events và filter accordingly
@@ -45,78 +52,76 @@ Client Request → Controller → Event Store → Event Replay → Domain Recons
 ### 4. Rollback Flow (NEW - Event Sourcing Time Travel)
 ```
 Client Request → Validation → Rollback Logic → Event Creation → State Reconstruction → Response
+## 🔄 Application Flow với Clean Architecture
+
+### 1. Command Flow (Write Operations)
+```
+Interface → Application → Domain → Infrastructure
+
+Client Request → OrderCommandController → Command Handler → Domain Service → Event Store
+```
+
+**Example - Create Order:**
+1. `POST /api/orders` nhận request
+2. `OrderCommandController.createOrder()` validate input
+3. Create `CreateOrderCommand` DTO
+4. `CreateOrderHandler.handle()` process command
+5. `Order.create()` apply business rules (Domain)
+6. Generate `OrderCreatedEvent` (Domain Event)
+7. `EventStore.saveEvent()` persist event (Infrastructure)
+8. Return success response
+
+### 2. Query Flow (Read Operations)
+```
+Interface → Application → Infrastructure → Domain → Response
+
+Client Request → OrderQueryController → Query Handler → Event Store → Domain Reconstruction
+```
+
+**Example - Get Order:**
+1. `GET /api/orders/:id` nhận request
+2. `OrderQueryController.getOrder()` create query
+3. `GetOrderHandler.handle()` process query
+4. `EventStore.getEvents(id)` load events
+5. `OrderDomainService.rebuildFromEvents()` reconstruct state
+6. Return Order aggregate state
+
+### 3. Event Sourcing Rollback Flow
+```
+Interface → Application → Domain → Infrastructure → Domain
+
+Client Request → Command Controller → Rollback Handler → Validation → Event Creation → State Rebuild
 ```
 
 **Example - Rollback Order:**
-1. `POST /api/debug/orders/:id/rollback` với `{toVersion: 4}`
-2. `OrderController.rollbackOrder()` nhận request
-3. **Validation Phase:**
-   - Load tất cả events của order
-   - Check skipped versions: `getSkippedVersions(events)`
-   - Reject nếu `toVersion` trong skipped list
-4. **Rollback Execution:**
-   - Capture original state trước rollback
-   - Filter events: keep events `version <= toVersion`
-   - Rebuild state từ filtered events
+1. `POST /api/orders/:id/rollback` với `{toVersion: 4}`
+2. `OrderCommandController.rollbackOrder()` validate
+3. `RollbackOrderHandler.handle()` process command
+4. **Domain Validation:**
+   - Load events từ Event Store
+   - `OrderDomainService.getSkippedVersions()` check validity
+   - Reject nếu target version đã bị skip
+5. **Domain Logic:**
+   - Filter events: keep version <= toVersion
+   - `OrderDomainService.rebuildFromEvents()` get state
    - Create `OrderRolledBackEvent` với metadata
-5. **Event Store Update:**
-   - Save rollback event với version mới
-   - Event này ghi lại rollback operation
-6. **Response:**
-   - Return before/after states
-   - Include rollback metadata
-   - List undone events
+6. **Persistence:**
+   - Save rollback event to Event Store
+7. **Response:**
+   - Return before/after states với rollback metadata
 
-**Rollback Validation Algorithm:**
-```typescript
-// Scenario: Order có events v1-v8, đã rollback v8→v4
-// Skipped versions: [5, 6, 7]
-// User cố rollback về v6 → BLOCKED
-
-function validateRollback(events: BaseEvent[], targetVersion: number): void {
-  const skippedVersions = getSkippedVersions(events);
-  
-  if (skippedVersions.includes(targetVersion)) {
-    throw new ValidationError(
-      `Cannot rollback to version ${targetVersion} - ` +
-      `was skipped by previous rollback. ` +
-      `Skipped versions: ${skippedVersions.join(', ')}`
-    );
-  }
-}
-```năng mới - Rollback Protection
-
-### Enhanced Event Sourcing với Rollback Validation
-- **Skipped Version Detection**: Tự động theo dõi các version bị bỏ qua do rollback
-- **Rollback Validation**: Ngăn chặn rollback về các version không hợp lệ
-- **Audit Trail**: Lịch sử rollback đầy đủ với timestamp và metadata
-- **Data Integrity**: Đảm bảo tính nhất quán của event stream
-
-## 🏗️ Kiến trúc tổng thể
-
+### 4. Dependency Injection Flow
 ```
-Order-management/
-├── src/
-│   ├── index.ts                 # Entry point & application bootstrap
-│   ├── api/                     # API Layer (Controllers, Routes, Middleware)
-│   │   ├── controller.ts        # Business logic & request handling
-│   │   ├── routes.ts           # API endpoints definition
-│   │   └── middleware.ts       # Validation & error handling
-│   ├── commands/               # Command Layer (CQRS)
-│   │   └── handlers.ts         # Command handlers for business operations
-│   ├── domain/                 # Domain Layer
-│   │   └── Order.ts            # Order aggregate & business rules
-│   ├── events/                 # Event Definitions
-│   │   └── types.ts            # Event interfaces & types
-│   └── infrastructure/         # Infrastructure Layer
-│       ├── event-store.ts      # Event store interface & in-memory implementation
-│       └── postgres-event-store.ts # PostgreSQL event store implementation
-├── database/
-│   ├── schema.sql              # Database schema definitions
-│   └── setup.ps1              # Database setup script
-├── package.json                # Dependencies & scripts
-└── tsconfig.json              # TypeScript configuration
+Bootstrap → Infrastructure → Application → Interface
+
+DIContainer → Event Store → Handlers → Controllers → Routes
 ```
+
+**Clean Architecture Benefits:**
+- **Testability**: Mỗi layer test độc lập
+- **Independence**: Business logic không phụ thuộc framework
+- **Flexibility**: Dễ thay đổi database/framework
+- **Maintainability**: Clear separation of concerns
 
 ## 🎯 Core Principles & Read/Write Mechanisms
 
@@ -259,146 +264,138 @@ async getOrderWithSnapshot(orderId: string): Promise<Order> {
 - **Different Models**: Write model và read model có thể có structure khác nhau
 - **Optimized for Purpose**: Mỗi model được tối ưu cho use case riêng
 
-**Command Side (Write Operations):**
-```typescript
-// COMMAND PATTERN - Handles Write Operations
-interface Command {
-  aggregateId: string;
-  version?: number;  // For optimistic concurrency control
-}
+### Command Side (Write Operations)
 
-interface CreateOrderCommand extends Command {
+**Commands** represent intent to change state:
+
+```typescript
+// Command DTOs
+interface CreateOrderCommand {
+  type: 'CreateOrder';
   customerId: string;
   items: OrderItem[];
 }
 
-interface UpdateOrderStatusCommand extends Command {
+interface UpdateOrderStatusCommand {
+  type: 'UpdateOrderStatus';
+  orderId: string;
   status: OrderStatus;
 }
+```
 
-// Command Handler - Business Logic Layer
-class OrderCommandHandlers {
-  constructor(private eventStore: EventStore) {}
+**Command Handlers** process business operations:
 
-  // Write Operation Handler
-  async handleCreateOrder(command: CreateOrderCommand): Promise<void> {
-    // 1. Validation
-    this.validateCreateOrderCommand(command);
-    
-    // 2. Business Logic
+```typescript
+export class CreateOrderHandler {
+  constructor(private eventStore: IEventStore) {}
+  
+  async handle(command: CreateOrderCommand): Promise<string> {
+    // 1. Domain logic
     const order = Order.create(command.customerId, command.items);
     
-    // 3. Event Generation
-    const event = order.getUncommittedEvents()[0]; // OrderCreatedEvent
+    // 2. Create domain event
+    const event: OrderCreatedEvent = {
+      type: 'OrderCreated',
+      aggregateId: order.id,
+      aggregateType: 'Order',
+      version: 1,
+      timestamp: new Date().toISOString(),
+      data: { /* order data */ }
+    };
     
-    // 4. Persistence (Write to Event Store)
+    // 3. Persist event
     await this.eventStore.saveEvent(event);
     
-    // 5. Side Effects (if any)
-    await this.publishDomainEvents(order.getUncommittedEvents());
-  }
-
-  async handleUpdateOrderStatus(command: UpdateOrderStatusCommand): Promise<void> {
-    // 1. Load current state (Read for Write)
-    const currentOrder = await this.getOrderFromEvents(command.aggregateId);
-    
-    // 2. Optimistic Concurrency Check
-    if (command.version && currentOrder.version !== command.version) {
-      throw new ConcurrencyError('Order was modified by another process');
-    }
-    
-    // 3. Apply business rule
-    const updatedOrder = currentOrder.updateStatus(command.status);
-    
-    // 4. Generate event
-    const event = updatedOrder.getUncommittedEvents()[0]; // OrderStatusUpdatedEvent
-    
-    // 5. Persist event
-    await this.eventStore.saveEvent(event);
+    return order.id;
   }
 }
 ```
 
-**Query Side (Read Operations):**
+**Command Controller** handles HTTP requests:
+
 ```typescript
-// QUERY PATTERN - Handles Read Operations  
-interface Query {
-  filters?: any;
-  pagination?: PaginationOptions;
-  projection?: string[];
-}
-
-interface GetOrderQuery extends Query {
-  orderId: string;
-  asOfVersion?: number;    // Point-in-time query
-  asOfTimestamp?: Date;    // Historical query
-}
-
-interface GetOrdersQuery extends Query {
-  customerId?: string;
-  status?: OrderStatus;
-  dateRange?: DateRange;
-}
-
-// Query Handler - Read Optimized
-class OrderQueryHandlers {
-  constructor(
-    private eventStore: EventStore,
-    private readModelStore?: ReadModelStore  // Optional read model
-  ) {}
-
-  // Single Order Query
-  async handleGetOrder(query: GetOrderQuery): Promise<Order> {
-    let events = await this.eventStore.getEvents(query.orderId);
+export class OrderCommandController {
+  async createOrder(req: Request, res: Response): Promise<void> {
+    // 1. Validate input
+    const { customerId, items } = req.body;
     
-    // Point-in-time filtering
-    if (query.asOfVersion) {
-      events = events.filter(e => e.version <= query.asOfVersion);
-    }
+    // 2. Create command
+    const command: CreateOrderCommand = {
+      type: 'CreateOrder',
+      customerId,
+      items
+    };
     
-    if (query.asOfTimestamp) {
-      events = events.filter(e => e.timestamp <= query.asOfTimestamp);
-    }
+    // 3. Execute command
+    const orderId = await this.createOrderHandler.handle(command);
     
-    // State reconstruction
-    return this.rebuildOrderFromEvents(events);
-  }
-
-  // Multiple Orders Query (Eventually Consistent Read Model)
-  async handleGetOrders(query: GetOrdersQuery): Promise<Order[]> {
-    // Option 1: Real-time reconstruction (slow but consistent)
-    if (this.requiresRealTimeConsistency(query)) {
-      const allEvents = await this.eventStore.getAllEvents();
-      const orderEvents = this.groupEventsByAggregate(allEvents);
-      
-      return Promise.all(
-        Object.values(orderEvents).map(events => 
-          this.rebuildOrderFromEvents(events)
-        )
-      );
-    }
-    
-    // Option 2: Read from optimized read model (fast but eventually consistent)
-    if (this.readModelStore) {
-      return this.readModelStore.queryOrders(query);
-    }
-    
-    // Fallback to event reconstruction
-    return this.reconstructOrdersFromEvents(query);
+    // 4. Return response
+    res.status(201).json({ orderId });
   }
 }
 ```
 
-**CQRS Benefits:**
-- **Scalability**: Read và write có thể scale independently
-- **Performance**: Mỗi side được tối ưu cho use case riêng
-- **Flexibility**: Read model có thể denormalized cho performance
-- **Security**: Có thể implement khác nhau access control cho read/write
+### Query Side (Read Operations)
 
-**CQRS Trade-offs:**
-- **Complexity**: Phải maintain 2 models riêng biệt
-- **Eventually Consistency**: Read model có thể lag
-- **Data Duplication**: Read model có thể duplicate data từ events
+**Queries** represent data retrieval requests:
+
+```typescript
+// Query DTOs
+interface GetOrderQuery {
+  type: 'GetOrder';
+  orderId: string;
+}
+
+interface GetAllOrdersQuery {
+  type: 'GetAllOrders';
+  page?: number;
+  limit?: number;
+}
+```
+
+**Query Handlers** process data retrieval:
+
+```typescript
+export class GetOrderHandler {
+  constructor(private eventStore: IEventStore) {}
+  
+  async handle(query: GetOrderQuery): Promise<Order | null> {
+    // 1. Load events
+    const events = await this.eventStore.getEvents(query.orderId);
+    
+    // 2. Rebuild from events (Event Sourcing)
+    return OrderDomainService.rebuildFromEvents(events);
+  }
+}
+```
+
+**Query Controller** handles read requests:
+
+```typescript
+export class OrderQueryController {
+  async getOrder(req: Request, res: Response): Promise<void> {
+    // 1. Create query
+    const query: GetOrderQuery = {
+      type: 'GetOrder',
+      orderId: req.params.orderId
+    };
+    
+    // 2. Execute query
+    const order = await this.getOrderHandler.handle(query);
+    
+    // 3. Return data
+    res.json({ data: order?.toJSON() });
+  }
+}
+```
+
+### CQRS Benefits in Clean Architecture
+
+- **Separation of Concerns**: Write và read có logic riêng biệt
+- **Scalability**: Có thể scale read và write độc lập
+- **Optimization**: Read model có thể optimize cho specific queries
+- **Flexibility**: Write model focus vào business rules, read model focus vào data presentation
+- **Event Sourcing Compatibility**: Perfect fit với Event Sourcing pattern
 
 ### 4. Read/Write Synchronization Patterns
 
@@ -1000,3 +997,66 @@ class OptimizedOrderQueryHandler {
   }
 }
 ```
+
+## 🏗️ Clean Architecture Project Structure
+
+```
+Order-management/src/
+├── main.ts                      # 🚀 Application Entry Point
+├── domain/                      # 🏢 Domain Layer (Core Business Logic)
+│   ├── models/
+│   │   └── Order.ts            # Order Aggregate Root với business rules
+│   ├── events/
+│   │   └── types.ts            # Domain Events definitions
+│   ├── repositories/
+│   │   └── IEventStore.ts      # Repository interface (DIP)
+│   └── services/
+│       └── OrderDomainService.ts # Pure domain logic
+├── application/                 # 🎯 Application Layer (Use Cases)
+│   ├── commands/               # Write Side (CQRS)
+│   │   ├── OrderCommands.ts    # Command DTOs
+│   │   └── handlers/
+│   │       └── OrderCommandHandlers.ts # Command processing
+│   └── queries/                # Read Side (CQRS)
+│       ├── OrderQueries.ts     # Query DTOs
+│       └── handlers/
+│           └── OrderQueryHandlers.ts # Query processing
+├── infrastructure/             # 🔧 Infrastructure Layer (Technical)
+│   └── persistence/
+│       ├── InMemoryEventStore.ts    # Development implementation
+│       ├── PostgreSQLEventStore.ts  # Production implementation
+│       └── EventStoreFactory.ts     # Factory pattern
+├── interfaces/                 # 📱 Interface Layer (Controllers)
+│   ├── controllers/
+│   │   ├── OrderCommandController.ts # Write API endpoints
+│   │   └── OrderQueryController.ts   # Read API endpoints
+│   └── routes/
+│       └── OrderRoutes.ts      # Route definitions
+└── bootstrap/                  # 🚀 Composition Root
+    ├── DIContainer.ts          # Dependency Injection setup
+    └── Application.ts          # App bootstrap và startup
+```
+
+### 🎯 Layer Dependencies (Clean Architecture Rule)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    DEPENDENCY RULE                     │
+│                                                         │
+│  🚫 Outer layers CANNOT depend on inner layers         │
+│  ✅ Inner layers define interfaces for outer layers    │
+│                                                         │
+│  Dependencies point INWARD only:                       │
+│  Interface → Application → Domain ← Infrastructure     │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Layer Responsibilities:**
+
+| Layer | Nhiệm vụ | Phụ thuộc |
+|-------|----------|-----------|
+| 🏢 **Domain** | Business logic, entities, rules | Không phụ thuộc gì |
+| 🎯 **Application** | Use cases, orchestration | Chỉ Domain |
+| 🔧 **Infrastructure** | Database, external services | Application + Domain |
+| 📱 **Interface** | Controllers, APIs, UI | Application + Domain |
+| 🚀 **Bootstrap** | DI, configuration, startup | Tất cả layers |

@@ -1,29 +1,31 @@
-# Order Management System - Event Sourcing & CQRS
+# Order Management System - Clean Architecture + DDD + CQRS + Event Sourcing
 
-A complete order management system demonstrating **Event Sourcing** and **CQRS** patterns with PostgreSQL database and modern web interface.
+A modern order management system built with **Clean Architecture**, **Domain-Driven Design (DDD)**, **CQRS**, and **Event Sourcing** patterns, featuring a reactive web interface and comprehensive API.
 
 ## 🏗️ Architecture Overview
 
 ```
-Frontend (Next.js)  ←→  Backend (Express.js)  ←→  PostgreSQL
-   Port 3000              Port 3**Utility Scripts (scripts/ folder):**
-**Batch Scripts (Windows CMD):**
-- `setup.bat` - Complete project setup
-- `start-dev.bat` - Start in separate terminals  
-- `database-setup.bat` - Database setup only
-
-**PowerShell Scripts:**
-- `setup.ps1` - Complete setup (PowerShell)
-- `start-dev.ps1` - Start development servers     Port 5432
-                              ↓
-                    Event Store & CQRS Pattern
+Frontend (Next.js)  ←→  Backend (Clean Architecture)  ←→  Event Store
+   Port 3000                    Port 3000                  (Memory/PostgreSQL)
+                                     ↓
+                    ┌─────────────────────────────────────┐
+                    │          Clean Architecture        │
+                    ├─────────────────────────────────────┤
+                    │ 📱 Interfaces (Controllers/Routes) │
+                    │ 🎯 Application (Commands/Queries)  │
+                    │ 🏢 Domain (Entities/Services)      │
+                    │ 🔧 Infrastructure (Persistence)    │
+                    │ 🚀 Bootstrap (DI Container)        │
+                    └─────────────────────────────────────┘
 ```
 
-### Key Architecture Components:
-- **Event Sourcing**: All state changes stored as immutable events
-- **CQRS**: Separate Command (write) and Query (read) models
-- **Domain-Driven Design**: Order aggregate with business rules
-- **TypeScript**: Full type safety across the stack
+### 🎯 Architecture Patterns:
+- **Clean Architecture**: 4-layer separation with dependency inversion
+- **Domain-Driven Design (DDD)**: Rich domain models with business logic
+- **CQRS**: Separate Command (write) and Query (read) operations
+- **Event Sourcing**: Immutable event store with event replay capability
+- **Dependency Injection**: IoC container for loose coupling
+- **TypeScript**: Complete type safety across all layers
 
 ## ⚡ Quick Start
 
@@ -56,13 +58,19 @@ REM Copy environment template
 cd Order-management
 copy .env.example .env
 
-REM Edit database credentials
+REM Edit configuration
 notepad .env
 ```
 
 **Update your .env file:**
 ```properties
-# Database Configuration
+# Event Store Configuration (Choose one)
+EVENT_STORE_TYPE=memory              # For development/testing
+# EVENT_STORE_TYPE=postgres          # For production
+
+# Database Configuration (if using PostgreSQL)
+DATABASE_URL=postgresql://postgres:password@localhost:5432/order_management
+# OR separate values:
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=order_management
@@ -70,28 +78,34 @@ DB_USER=postgres
 DB_PASSWORD=your_postgresql_password_here
 
 # Application Configuration
-PORT=3001
+PORT=3000
 NODE_ENV=development
+CORS_ORIGIN=http://localhost:3001
 ```
 
-#### Step 4: Database Setup
+#### Step 4: Database Setup (Optional - for PostgreSQL)
 ```batch
-REM Setup database schema and functions
+REM Setup database schema (only if using PostgreSQL)
 cd database
 setup.ps1
 ```
 
 #### Step 5: Start Application
 ```batch
-REM Start both frontend and backend
-cd ..
+REM Start Clean Architecture backend
+cd Order-management
+npm run dev
+
+REM In another terminal, start frontend
+cd ../frontend  
 npm run dev
 ```
 
 #### Step 6: Access Application
-- **Frontend UI**: http://localhost:3000
-- **Backend API**: http://localhost:3001
-- **Health Check**: http://localhost:3001/health
+- **Frontend UI**: http://localhost:3001
+- **Backend API**: http://localhost:3000
+- **API Documentation**: http://localhost:3000/api
+- **Health Check**: http://localhost:3000/api/health
 
 ### PowerShell Alternative
 ```powershell
@@ -177,27 +191,57 @@ cd scripts
 
 ## 🔌 API Endpoints
 
-### Command Operations (Write)
+### Command Operations (Write Side - CQRS)
 ```http
-POST   /api/orders                    # Create new order
-PUT    /api/orders/:id/status         # Update order status
-POST   /api/orders/:id/items          # Add item to order
-DELETE /api/orders/:id/items/:productId # Remove item from order
+POST   /api/orders                          # Create new order
+PUT    /api/orders/:id/status               # Update order status  
+POST   /api/orders/:id/items                # Add item to order
+DELETE /api/orders/:id/items/:productId     # Remove item from order
+POST   /api/orders/:id/rollback             # Rollback order (Event Sourcing)
 ```
 
-### Query Operations (Read)
+### Query Operations (Read Side - CQRS)  
 ```http
-GET    /api/orders/:id                # Get order by ID
-GET    /api/orders                    # Get all orders
-GET    /api/health                    # System health check
+GET    /api/orders                          # Get all orders (paginated)
+GET    /api/orders/search?customerId=:id    # Search orders by customer
+GET    /api/orders/:id                      # Get order by ID
+GET    /api/orders/:id/summary              # Get order summary (lightweight)
+GET    /api/orders/:id/events               # Get order event history
+GET    /api/orders/:id/skipped-versions     # Get skipped versions
+GET    /api/events                          # Get all system events (paginated)
 ```
 
-### Debug & Development
+### System Operations
 ```http
-GET    /api/debug/events              # Get all events in system
-GET    /api/debug/orders/:id/events   # Get events for specific order
-GET    /api/debug/stats               # Database statistics
-POST   /api/debug/orders/:id/rollback # Rollback order to specific version/time (demo)
+GET    /api/health                          # Health check with database status
+GET    /api/stats                           # Database statistics
+GET    /api                                 # API documentation
+```
+
+### Example Requests
+
+**Create Order:**
+```bash
+curl -X POST http://localhost:3000/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "customer-123",
+    "items": [
+      {
+        "productId": "product-1", 
+        "productName": "Laptop",
+        "quantity": 1,
+        "price": 999.99
+      }
+    ]
+  }'
+```
+
+**Event Sourcing Rollback:**
+```bash
+curl -X POST http://localhost:3000/api/orders/order-123/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"toVersion": 2}'
 ```
 
 ## 🗄️ Database Schema
@@ -245,15 +289,40 @@ POST /api/orders → OrderController.createOrder() → CreateOrderCommand → Or
 ```
 1. Client Request → 2. Controller → 3. Event Store → 4. Event Replay → 5. Rebuild State → 6. Response
 
+## 💡 Clean Architecture Flow
+
+### Command Flow (Write Operations)
+```
+Client Request → Interface Layer → Application Layer → Domain Layer → Infrastructure Layer
+
 Example:
-GET /api/orders/123 → OrderController.getOrder() → EventStore.getEvents() → Event Replay → Current Order State
+POST /api/orders → OrderCommandController → CreateOrderHandler → Order.create() → EventStore.saveEvent()
+                  (Interface)              (Application)        (Domain)        (Infrastructure)
 ```
 
-### Event Types
+### Query Flow (Read Operations)
+```
+Client Request → Interface Layer → Application Layer → Infrastructure Layer → Domain Layer → Response
+
+Example:
+GET /api/orders/123 → OrderQueryController → GetOrderHandler → EventStore.getEvents() → OrderDomainService.rebuildFromEvents()
+                     (Interface)            (Application)       (Infrastructure)       (Domain)
+```
+
+### Dependency Flow (Clean Architecture Rule)
+```
+🚫 Domain ← Application ← Infrastructure ← Interface
+✅ Domain → Application → Infrastructure → Interface
+
+Dependencies point inward, with abstractions at domain boundaries
+```
+
+### Event Types (Domain Events)
 - **OrderCreatedEvent**: New order with initial items
 - **OrderStatusUpdatedEvent**: Status change (Pending → Confirmed → etc.)
 - **OrderItemAddedEvent**: Item added to existing order
 - **OrderItemRemovedEvent**: Item removed from order
+- **OrderRolledBackEvent**: Event sourcing rollback operation
 
 ## 🧪 Example Usage
 
@@ -349,15 +418,42 @@ curl -X POST http://localhost:3001/api/debug/orders/{orderId}/rollback \
 ## 📁 Project Structure
 
 ```
-lab1/
-├── Order-management/              # Backend (Express.js + TypeScript)
+Order-management/
+├── Order-management/              # Backend (Clean Architecture + TypeScript)
 │   ├── src/
-│   │   ├── index.ts              # Application entry point
-│   │   ├── api/                  # API layer (controllers, routes, middleware)
-│   │   ├── commands/             # Command handlers (CQRS write side)
-│   │   ├── domain/              # Domain models and business logic
-│   │   ├── events/              # Event definitions and types
-│   │   └── infrastructure/       # Event stores and data persistence
+│   │   ├── main.ts              # Application entry point
+│   │   ├── domain/              # 🏢 Domain Layer (Business Logic)
+│   │   │   ├── models/          # Entities & Aggregates
+│   │   │   │   └── Order.ts     # Order Aggregate Root
+│   │   │   ├── events/          # Domain Events
+│   │   │   │   └── types.ts     # Event definitions
+│   │   │   ├── repositories/    # Repository Interfaces (DIP)
+│   │   │   │   └── IEventStore.ts
+│   │   │   └── services/        # Domain Services
+│   │   │       └── OrderDomainService.ts
+│   │   ├── application/         # 🎯 Application Layer (Use Cases)
+│   │   │   ├── commands/        # CQRS Commands (Write)
+│   │   │   │   ├── OrderCommands.ts
+│   │   │   │   └── handlers/
+│   │   │   │       └── OrderCommandHandlers.ts
+│   │   │   └── queries/         # CQRS Queries (Read)
+│   │   │       ├── OrderQueries.ts
+│   │   │       └── handlers/
+│   │   │           └── OrderQueryHandlers.ts
+│   │   ├── infrastructure/      # 🔧 Infrastructure Layer
+│   │   │   └── persistence/     # Data Access
+│   │   │       ├── InMemoryEventStore.ts
+│   │   │       ├── PostgreSQLEventStore.ts
+│   │   │       └── EventStoreFactory.ts
+│   │   ├── interfaces/          # 📱 Interface Layer (Controllers)
+│   │   │   ├── controllers/     # API Controllers
+│   │   │   │   ├── OrderCommandController.ts  # Write operations
+│   │   │   │   └── OrderQueryController.ts    # Read operations
+│   │   │   └── routes/
+│   │   │       └── OrderRoutes.ts
+│   │   └── bootstrap/           # 🚀 Composition Root
+│   │       ├── DIContainer.ts   # Dependency Injection
+│   │       └── Application.ts   # App Bootstrap
 │   ├── database/
 │   │   ├── schema.sql           # Database schema
 │   │   └── setup.ps1            # Database setup script
@@ -372,10 +468,22 @@ lab1/
 │   ├── setup.bat/.ps1           # Project setup
 │   ├── demo_script.bat/.ps1     # Demo automation
 │   └── README.md                # Scripts documentation
+├── docs/                          # Documentation
+│   ├── BACKEND_DOCUMENTATION.md  # Architecture details
+│   └── DEMO_SCRIPT.md            # Demo guide
 ├── quick-start.bat               # One-click launcher
-├── BACKEND_DOCUMENTATION.md      # Detailed backend architecture
 └── README.md                     # This file
 ```
+
+### 🏗️ Clean Architecture Layers
+
+| Layer | Responsibility | Dependencies |
+|-------|---------------|--------------|
+| **🏢 Domain** | Business logic, entities, rules | None (Pure) |
+| **🎯 Application** | Use cases, orchestration | Domain only |
+| **🔧 Infrastructure** | Data access, external services | Application, Domain |
+| **📱 Interfaces** | Controllers, routes, APIs | Application, Domain |
+| **🚀 Bootstrap** | DI container, app startup | All layers |
 
 ## 🔍 Troubleshooting
 
