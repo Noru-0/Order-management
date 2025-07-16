@@ -1100,15 +1100,656 @@ export default function OrderManagementDemo() {
   }
 
   return (
-    <div className="h-screen overflow-hidden" style={{ padding: "0 6rem 1rem 6rem" }}>
-      <div className="h-full flex flex-col p-2">
+    <div className="min-h-screen overflow-hidden" style={{ padding: "0 1rem 1rem 1rem" }}>
+      <div className="h-full flex flex-col p-1 sm:p-2">
         <div className="py-2 text-center">
-          <h1 className="text-xl font-bold text-gray-900">Event Sourcing Order Management</h1>
+          <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">Event Sourcing Order Management</h1>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-7 gap-3 flex-1 min-h-0 p-2">
-        {/* Column 1 - Create Order & Order Operations - 2 fractions */}
-        <div className="lg:col-span-2 flex flex-col space-y-3 min-h-0">
+        {/* Mobile Layout - Stack vertically on small screens */}
+        <div className="block md:hidden space-y-3 lg:space-y-4 flex-1 min-h-0 overflow-y-auto px-1">
+          {/* Mobile - Create Order */}
+          <Card className="flex-shrink-0">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Package className="h-4 w-4" />
+                Tạo Order Mới
+              </CardTitle>
+              <CardDescription className="text-sm">Tạo order với command CreateOrder</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div>
+                <Label>Customer ID</Label>
+                <Input
+                  value={createOrderForm.customerId}
+                  onChange={(e) => setCreateOrderForm(prev => ({ ...prev, customerId: e.target.value }))}
+                  placeholder="customer-001"
+                />
+              </div>
+
+              <div>
+                <Label>Items</Label>
+                <div className="space-y-2 mt-2 max-h-32 overflow-y-auto">
+                  {createOrderForm.items.map((item, index) => (
+                    <div key={index} className="flex items-center gap-2 p-2 border rounded">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{item.productName}</div>
+                        <div className="text-xs text-gray-500">
+                          {item.productId} - Qty: {item.quantity} - ${item.price}
+                        </div>
+                      </div>
+                      <Button
+                        className="h-8 w-8 p-0"
+                        onClick={() => removeItemFromForm(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <Separator className="my-4" />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Product ID"
+                    value={newItem.productId}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Product Name"
+                    value={newItem.productName}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Quantity"
+                    value={newItem.quantity}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Price"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+                <Button onClick={addItemToForm} className="mt-2 w-full">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Item
+                </Button>
+              </div>
+
+              <Button 
+                onClick={handleCreateOrder} 
+                disabled={loading.createOrder}
+                className="w-full"
+              >
+                {loading.createOrder && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Tạo Order
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Mobile - Query Operations */}
+          <Card className="flex-shrink-0">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Search className="h-4 w-4" />
+                Query Operations
+              </CardTitle>
+              <CardDescription className="text-sm">Truy vấn thông tin order và events</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div>
+                <Label className="text-sm">Search Order ID</Label>
+                <Input
+                  value={searchOrderId}
+                  onChange={(e) => setSearchOrderId(e.target.value)}
+                  placeholder="Order ID để tìm kiếm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  onClick={handleGetOrder} 
+                  disabled={loading.getOrder}
+                  className="w-full text-xs"
+                >
+                  {loading.getOrder && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  Get Order
+                </Button>
+                <Button 
+                  onClick={handleGetOrderEventsClick} 
+                  disabled={loading.getEvents}
+                  className="w-full text-xs"
+                >
+                  {loading.getEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  Get Events
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  onClick={handleGetAllOrdersClick} 
+                  disabled={loading.getAllOrders}
+                  className="w-full text-xs"
+                >
+                  {loading.getAllOrders && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  All Orders
+                </Button>
+                <Button 
+                  onClick={handleGetAllEventsClick} 
+                  disabled={loading.getAllEvents}
+                  className="w-full text-xs"
+                >
+                  {loading.getAllEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  All Events
+                </Button>
+              </div>
+
+              <Button 
+                onClick={handleHealthCheck}
+                className="w-full text-xs bg-green-600 hover:bg-green-700"
+              >
+                🏥 Health Check
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Mobile - Current Order */}
+          {currentOrder && (
+            <Card className="flex-shrink-0">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Current Order</CardTitle>
+                <CardDescription className="text-sm">Thông tin order hiện tại</CardDescription>
+              </CardHeader>
+              <CardContent className="p-3">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">ID:</span>
+                    <span className="text-sm font-mono">{currentOrder.id.substring(0, 8)}...</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Customer:</span>
+                    <span className="text-sm">{currentOrder.customerId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Status:</span>
+                    <StatusBadge status={currentOrder.status} />
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm font-medium">Total:</span>
+                    <span className="text-sm font-semibold">${currentOrder.totalAmount.toFixed(2)}</span>
+                  </div>
+                  
+                  <Separator className="my-2" />
+                  
+                  <div>
+                    <div className="text-sm font-medium mb-2">Items ({currentOrder.items.length}):</div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {currentOrder.items.map((item, index) => (
+                        <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                          <div>
+                            <div className="text-sm font-medium">{item.productName}</div>
+                            <div className="text-xs text-gray-500">{item.productId}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm">{item.quantity}x ${item.price}</div>
+                            <Button
+                              className="h-6 w-6 p-0 mt-1"
+                              onClick={() => handleRemoveItem(item.productId)}
+                              disabled={loading.removeItem}
+                              title="Remove item"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Mobile - Order Operations */}
+          <Card className="flex-shrink-0">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Order Operations</CardTitle>
+              <CardDescription className="text-sm">Các thao tác với order đã tạo</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div>
+                <Label>Order ID</Label>
+                <Input
+                  value={orderId}
+                  onChange={(e) => setOrderId(e.target.value)}
+                  placeholder="Order ID để thao tác"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <Label>Status</Label>
+                  <select
+                    value={newStatus}
+                    onChange={(e) => setNewStatus(e.target.value)}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="PENDING">PENDING</option>
+                    <option value="CONFIRMED">CONFIRMED</option>
+                    <option value="SHIPPED">SHIPPED</option>
+                    <option value="DELIVERED">DELIVERED</option>
+                    <option value="CANCELLED">CANCELLED</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <Button 
+                    onClick={handleUpdateStatus} 
+                    disabled={loading.updateStatus || !orderId}
+                    className="w-full"
+                    title={!orderId ? "Please select an order first" : "Update order status"}
+                  >
+                    {loading.updateStatus && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Update Status
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div>
+                <Label>Add New Item</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  <Input
+                    placeholder="Product ID"
+                    value={newItem.productId}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Product Name"
+                    value={newItem.productName}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Quantity"
+                    value={newItem.quantity}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Price"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+                <Button 
+                  onClick={handleAddItem} 
+                  disabled={loading.addItem || !orderId || !newItem.productId}
+                  className="w-full mt-2"
+                  title={!orderId ? "Please select an order first" : !newItem.productId ? "Please enter product ID" : "Add item to order"}
+                >
+                  {loading.addItem && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Add Item to Order
+                </Button>
+              </div>
+
+              {/* Rollback Section */}
+              <Separator />
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
+                
+                <div>
+                  <Label htmlFor="rollbackOrderId" className="text-sm">Order ID</Label>
+                  <Input
+                    id="rollbackOrderId"
+                    value={rollbackOrderId}
+                    onChange={(e) => setRollbackOrderId(e.target.value)}
+                    placeholder="order-uuid"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="rollbackVersion" className="text-sm">Version</Label>
+                    <Input
+                      id="rollbackVersion"
+                      type="number"
+                      value={rollbackVersion}
+                      onChange={(e) => setRollbackVersion(e.target.value)}
+                      placeholder="1,2,3..."
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="rollbackTimestamp" className="text-sm">Timestamp</Label>
+                    <Input
+                      id="rollbackTimestamp"
+                      type="datetime-local"
+                      value={rollbackTimestamp}
+                      onChange={(e) => setRollbackTimestamp(e.target.value)}
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={handleRollback} 
+                  disabled={loading.rollback}
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                >
+                  {loading.rollback && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {loading.rollback ? "Rolling back..." : "🔄 Rollback"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mobile - Last Response */}
+          <Card className="flex-shrink-0">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Last Response</CardTitle>
+              <CardDescription className="text-sm">Phản hồi từ API gần nhất</CardDescription>
+            </CardHeader>
+            <CardContent className="p-3">
+              {lastResponse ? (
+                <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-64">
+                  {lastResponse}
+                </pre>
+              ) : (
+                <div className="text-center text-gray-400 py-4">
+                  <p>Chưa có response nào</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tablet Layout - 2 columns on medium screens */}
+        <div className="hidden md:grid lg:hidden md:grid-cols-2 gap-3 flex-1 min-h-0 overflow-hidden p-2">
+          {/* Left Column - Forms and Operations */}
+          <div className="flex flex-col space-y-3 min-h-0">
+            {/* Tablet - Create Order */}
+            <Card className="flex-shrink-0">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Package className="h-4 w-4" />
+                  Tạo Order Mới
+                </CardTitle>
+                <CardDescription className="text-sm">Tạo order với command CreateOrder</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                <div>
+                  <Label>Customer ID</Label>
+                  <Input
+                    value={createOrderForm.customerId}
+                    onChange={(e) => setCreateOrderForm(prev => ({ ...prev, customerId: e.target.value }))}
+                    placeholder="customer-001"
+                  />
+                </div>
+
+                <div>
+                  <Label>Items</Label>
+                  <div className="space-y-2 mt-2 max-h-24 overflow-y-auto">
+                    {createOrderForm.items.map((item, index) => (
+                      <div key={index} className="flex items-center gap-2 p-2 border rounded">
+                        <div className="flex-1">
+                          <div className="text-sm font-medium">{item.productName}</div>
+                          <div className="text-xs text-gray-500">
+                            {item.productId} - Qty: {item.quantity} - ${item.price}
+                          </div>
+                        </div>
+                        <Button
+                          className="h-8 w-8 p-0"
+                          onClick={() => removeItemFromForm(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Product ID"
+                      value={newItem.productId}
+                      onChange={(e) => setNewItem(prev => ({ ...prev, productId: e.target.value }))}
+                    />
+                    <Input
+                      placeholder="Product Name"
+                      value={newItem.productName}
+                      onChange={(e) => setNewItem(prev => ({ ...prev, productName: e.target.value }))}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Quantity"
+                      value={newItem.quantity}
+                      onChange={(e) => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Price"
+                      value={newItem.price}
+                      onChange={(e) => setNewItem(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  <Button onClick={addItemToForm} className="mt-2 w-full">
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Item
+                  </Button>
+                </div>
+
+                <Button 
+                  onClick={handleCreateOrder} 
+                  disabled={loading.createOrder}
+                  className="w-full"
+                >
+                  {loading.createOrder && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Tạo Order
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Tablet - Query Operations with Rollback */}
+            <Card className="flex-1 min-h-0">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Search className="h-4 w-4" />
+                  Query & Operations
+                </CardTitle>
+                <CardDescription className="text-sm">Truy vấn và thao tác order</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0 overflow-y-auto max-h-96">
+                <div>
+                  <Label className="text-sm">Search Order ID</Label>
+                  <Input
+                    value={searchOrderId}
+                    onChange={(e) => setSearchOrderId(e.target.value)}
+                    placeholder="Order ID để tìm kiếm"
+                    className="h-8"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button 
+                    onClick={handleGetOrder} 
+                    disabled={loading.getOrder}
+                    className="w-full h-8 text-xs"
+                  >
+                    {loading.getOrder && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    Get Order
+                  </Button>
+                  <Button 
+                    onClick={handleGetOrderEventsClick} 
+                    disabled={loading.getEvents}
+                    className="w-full h-8 text-xs"
+                  >
+                    {loading.getEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    Get Events
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button 
+                    onClick={handleGetAllOrdersClick} 
+                    disabled={loading.getAllOrders}
+                    className="w-full h-8 text-xs"
+                  >
+                    {loading.getAllOrders && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    All Orders
+                  </Button>
+                  <Button 
+                    onClick={handleGetAllEventsClick} 
+                    disabled={loading.getAllEvents}
+                    className="w-full h-8 text-xs"
+                  >
+                    {loading.getAllEvents && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    All Events
+                  </Button>
+                </div>
+
+                <Separator />
+
+                {/* Rollback Section */}
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold text-blue-700">🔄 Rollback Demo</h3>
+                  
+                  <div>
+                    <Label htmlFor="rollbackOrderId" className="text-xs">Order ID</Label>
+                    <Input
+                      id="rollbackOrderId"
+                      value={rollbackOrderId}
+                      onChange={(e) => setRollbackOrderId(e.target.value)}
+                      placeholder="order-uuid"
+                      className="h-8"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="rollbackVersion" className="text-xs">Version</Label>
+                      <Input
+                        id="rollbackVersion"
+                        type="number"
+                        value={rollbackVersion}
+                        onChange={(e) => setRollbackVersion(e.target.value)}
+                        placeholder="1,2,3..."
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="rollbackTimestamp" className="text-xs">Timestamp</Label>
+                      <Input
+                        id="rollbackTimestamp"
+                        type="datetime-local"
+                        value={rollbackTimestamp}
+                        onChange={(e) => setRollbackTimestamp(e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <Button 
+                    onClick={handleRollback} 
+                    disabled={loading.rollback}
+                    className="w-full bg-orange-600 hover:bg-orange-700 h-8 text-xs"
+                  >
+                    {loading.rollback && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                    {loading.rollback ? "Rolling back..." : "🔄 Rollback"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Data Display */}
+          <div className="flex flex-col space-y-3 min-h-0">
+            {/* Tablet - Current Order */}
+            {currentOrder && (
+              <Card className="flex-shrink-0">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Current Order</CardTitle>
+                  <CardDescription className="text-sm">Thông tin order hiện tại</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 max-h-48 overflow-y-auto">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium">ID:</span>
+                      <span className="text-sm font-mono">{currentOrder.id.substring(0, 8)}...</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium">Customer:</span>
+                      <span className="text-sm">{currentOrder.customerId}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium">Status:</span>
+                      <StatusBadge status={currentOrder.status} />
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm font-medium">Total:</span>
+                      <span className="text-sm font-semibold">${currentOrder.totalAmount.toFixed(2)}</span>
+                    </div>
+                    
+                    <Separator className="my-2" />
+                    
+                    <div>
+                      <div className="text-sm font-medium mb-2">Items ({currentOrder.items.length}):</div>
+                      <div className="space-y-1 max-h-24 overflow-y-auto">
+                        {currentOrder.items.map((item, index) => (
+                          <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                            <div>
+                              <div className="text-sm font-medium">{item.productName}</div>
+                              <div className="text-xs text-gray-500">{item.productId}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm">{item.quantity}x ${item.price}</div>
+                              <Button
+                                className="h-6 w-6 p-0 mt-1"
+                                onClick={() => handleRemoveItem(item.productId)}
+                                disabled={loading.removeItem}
+                                title="Remove item"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tablet - Last Response */}
+            <Card className="flex-1 min-h-0">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Last Response</CardTitle>
+                <CardDescription className="text-sm">Phản hồi từ API gần nhất</CardDescription>
+              </CardHeader>
+              <CardContent className="h-full pt-0 p-3">
+                {lastResponse ? (
+                  <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto h-full max-h-96">
+                    {lastResponse}
+                  </pre>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-gray-400">
+                    <p>Chưa có response nào</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Desktop Layout - Grid system with better responsive breakpoints */}
+        <div className="hidden lg:grid xl:grid-cols-8 lg:grid-cols-6 gap-2 lg:gap-3 flex-1 min-h-0 p-1 lg:p-2">
+        {/* Column 1 - Create Order & Order Operations - Responsive columns */}
+        <div className="xl:col-span-2 lg:col-span-2 flex flex-col space-y-2 lg:space-y-3 min-h-0">
           {/* Create Order */}
           <Card className="flex-shrink-0">
             <CardHeader className="pb-3">
@@ -1286,8 +1927,8 @@ export default function OrderManagementDemo() {
           </Card>
         </div>
 
-        {/* Column 2 - Query Operations & Last Response - 2 fractions */}
-        <div className="lg:col-span-2 flex flex-col space-y-3 min-h-0">
+        {/* Column 2 - Query Operations & Last Response - Responsive columns */}
+        <div className="xl:col-span-2 lg:col-span-2 flex flex-col space-y-2 lg:space-y-3 min-h-0">
           {/* Query Operations */}
           <Card className="flex-shrink-0">
             <CardHeader className="pb-3">
@@ -1426,8 +2067,8 @@ export default function OrderManagementDemo() {
           </Card>
         </div>
 
-        {/* Column 3 - Current Order & All Orders & Events - 3 fractions */}
-        <div className="lg:col-span-3 flex flex-col space-y-3 min-h-0">
+        {/* Column 3 - Current Order & All Orders & Events - Responsive columns */}
+        <div className="xl:col-span-4 lg:col-span-2 flex flex-col space-y-2 lg:space-y-3 min-h-0">
           {/* Current Order - Compact size */}
           <Card className="flex-shrink-0">
             <CardHeader className="pb-2 flex-shrink-0">
