@@ -1,0 +1,160 @@
+classDiagram
+    %% Presentation Layer
+    class OrderController {
+        +updateOrderStatus(req, res)
+        +getOrder(id)
+        +createOrder(req, res)
+    }
+    
+    class ReportController {
+        +generateSalesReport(req, res)
+        +generateOrderStatusReport(req, res)
+        +generateCustomerActivityReport(req, res)
+    }
+    
+    class ValidationMiddleware {
+        +validateOrderStatusUpdate(req, res, next)
+        +validateDateRange(req, res, next)
+    }
+    
+    %% Application Layer
+    class OrderCommandHandlers {
+        +handleCreateOrder(command)
+        +handleUpdateOrderStatus(command)
+        +handleAddOrderItem(command)
+        +handleRemoveOrderItem(command)
+    }
+    
+    class ReportGenerator {
+        +generateSalesReport(startDate, endDate)
+        +generateOrderStatusReport()
+        +generateCustomerActivityReport()
+    }
+    
+    class OrderService {
+        +processOrder(orderId)
+        +validateOrder(order)
+        +calculateOrderTotal(order)
+    }
+    
+    %% Domain Layer
+    class Order {
+        -id: string
+        -customerId: string
+        -items: OrderItem[]
+        -status: OrderStatus
+        -totalAmount: number
+        +updateStatus(newStatus)
+        +addItem(item)
+        +removeItem(productId)
+        +calculateTotal()
+    }
+    
+    class OrderItem {
+        -productId: string
+        -productName: string
+        -quantity: number
+        -price: number
+        +calculateSubtotal()
+    }
+    
+    class OrderStatus {
+        <<enumeration>>
+        PENDING
+        CONFIRMED
+        SHIPPED
+        DELIVERED
+        CANCELLED
+    }
+    
+    %% Events
+    class BaseEvent {
+        <<interface>>
+        +type: string
+        +aggregateId: string
+        +version: number
+        +timestamp: Date
+        +data: any
+    }
+    
+    class OrderCreatedEvent {
+        +type: "OrderCreated"
+        +data: OrderCreatedData
+    }
+    
+    class OrderStatusUpdatedEvent {
+        +type: "OrderStatusUpdated"
+        +data: OrderStatusUpdatedData
+    }
+    
+    class OrderItemAddedEvent {
+        +type: "OrderItemAdded"
+        +data: OrderItemAddedData
+    }
+    
+    %% Infrastructure Layer
+    class EventStore {
+        <<interface>>
+        +saveEvent(event)
+        +getEvents(aggregateId)
+        +getEventsByDateRange(start, end)
+        +getAllEvents()
+    }
+    
+    class PostgresEventStore {
+        -pool: Pool
+        +saveEvent(event)
+        +getEvents(aggregateId)
+        +getEventsByDateRange(start, end)
+        +healthCheck()
+    }
+    
+    class InMemoryEventStore {
+        -events: BaseEvent[]
+        +saveEvent(event)
+        +getEvents(aggregateId)
+        +clear()
+    }
+    
+    class PDFGenerator {
+        +generateSalesReportPDF(report)
+        +generateOrderStatusReportPDF(report)
+        -generateDailyDataTable(doc, data, startY)
+    }
+    
+    class ExcelGenerator {
+        +generateSalesReportExcel(report)
+        +generateOrderStatusReportExcel(report)
+    }
+    
+    class ReportCache {
+        -redis: Redis
+        +getCachedReport(key)
+        +cacheReport(key, report, ttl)
+        +generateCacheKey(reportType, params)
+    }
+    
+    %% Relationships
+    OrderController --> OrderCommandHandlers
+    OrderController --> OrderService
+    ReportController --> ReportGenerator
+    ReportController --> PDFGenerator
+    ReportController --> ExcelGenerator
+    ReportController --> ReportCache
+    
+    OrderCommandHandlers --> EventStore
+    OrderCommandHandlers --> Order
+    ReportGenerator --> EventStore
+    ReportGenerator --> Order
+    
+    Order --> OrderItem
+    Order --> OrderStatus
+    
+    BaseEvent <|-- OrderCreatedEvent
+    BaseEvent <|-- OrderStatusUpdatedEvent
+    BaseEvent <|-- OrderItemAddedEvent
+    
+    EventStore <|-- PostgresEventStore
+    EventStore <|-- InMemoryEventStore
+    
+    ReportGenerator --> ReportCache
